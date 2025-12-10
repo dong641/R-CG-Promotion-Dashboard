@@ -21,7 +21,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# [1단계] 글로벌 로그인 (입구 컷) - 비밀번호: dk2026
+# [1단계] 글로벌 로그인 (입구 컷) - 비밀번호: DK2026
 # ---------------------------------------------------------
 if 'is_global_unlocked' not in st.session_state:
     st.session_state.is_global_unlocked = False
@@ -33,7 +33,7 @@ if not st.session_state.is_global_unlocked:
     global_password = st.text_input("접속 암호", type="password", key="global_pw")
     
     if st.button("시스템 접속"):
-        if global_password == "dk2026":
+        if global_password == "DK2026":
             st.session_state.is_global_unlocked = True
             st.toast("접속 승인되었습니다.", icon="🔓")
             safe_rerun()
@@ -94,18 +94,41 @@ if page == "📊 대시보드":
 
     st.divider()
     
-    # 2. 조회용 테이블 (수정 불가)
-    st.subheader("📋 전체 목록 조회")
-    st.dataframe(
-        df,
-        column_config={
-            "진척율": st.column_config.ProgressColumn(
-                "진척율", format="%d%%", min_value=0, max_value=100
-            ),
-        },
-        use_container_width=True,
-        hide_index=True
-    )
+    # 2. 분류별 목록 조회 (탭으로 분리)
+    st.subheader("📋 프로모션 목록")
+
+    # 데이터 분리
+    df_active = df[df['상태'] != '완료'] # 완료가 아닌 모든 상태 (진행중, 기획, 대기 등)
+    df_completed = df[df['상태'] == '완료']
+
+    # 탭 생성
+    tab1, tab2 = st.tabs([f"🔥 진행 중 ({len(df_active)})", f"✅ 완료됨 ({len(df_completed)})"])
+
+    # 공통 설정 (컬럼 포맷)
+    common_config = {
+        "진척율": st.column_config.ProgressColumn(
+            "진척율", format="%d%%", min_value=0, max_value=100
+        ),
+        "상태": st.column_config.TextColumn("상태"), # 단순 텍스트로 표시
+    }
+
+    with tab1:
+        st.caption("현재 기획, 대기, 또는 진행 중인 프로모션입니다.")
+        st.dataframe(
+            df_active,
+            column_config=common_config,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    with tab2:
+        st.caption("이미 종료되었거나 완료된 프로모션입니다.")
+        st.dataframe(
+            df_completed,
+            column_config=common_config,
+            use_container_width=True,
+            hide_index=True
+        )
 
 # ---------------------------------------------------------
 # 페이지 2: 관리자 페이지 (2단계 잠금) - 비밀번호: diageorcg
@@ -136,7 +159,7 @@ elif page == "⚙️ 관리자 페이지":
             st.session_state.is_admin_unlocked = False
             safe_rerun()
             
-        st.markdown("프로모션 데이터를 **추가**하거나 **수정**할 수 있는 관리자 전용 페이지입니다.")
+        st.markdown("데이터를 직접 수정하거나 CSV로 일괄 관리할 수 있습니다.")
         st.divider()
 
         # 1. 새 프로모션 등록
@@ -174,8 +197,8 @@ elif page == "⚙️ 관리자 페이지":
         st.divider()
 
         # 2. 데이터 수정 에디터
-        st.subheader("✏️ 데이터 수정 및 삭제")
-        st.caption("아래 표에서 내용을 직접 수정하거나 행을 선택해 관리하세요.")
+        st.subheader("✏️ 목록 직접 수정")
+        st.caption("표를 클릭하여 데이터를 직접 수정, 추가(맨 아래 행), 삭제(행 선택 후 Delete)할 수 있습니다.")
 
         edited_df = st.data_editor(
             df,
@@ -208,4 +231,51 @@ elif page == "⚙️ 관리자 페이지":
                 st.toast("변경사항이 저장되었습니다!", icon="✅")
             except AttributeError:
                 pass
+                
+        st.divider()
 
+        # 3. 데이터 일괄 관리 (CSV)
+        st.subheader("📂 데이터 일괄 관리 (CSV)")
+        st.info("데이터가 많을 경우, 엑셀에서 편집하여 CSV로 업로드하세요.")
+
+        col_csv1, col_csv2 = st.columns(2)
+        
+        # CSV 다운로드
+        with col_csv1:
+            st.markdown("#### 1. 현재 데이터 다운로드")
+            csv = df.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 CSV 다운로드",
+                data=csv,
+                file_name="promotion_list.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+            
+        # CSV 업로드
+        with col_csv2:
+            st.markdown("#### 2. 데이터 덮어쓰기")
+            uploaded_file = st.file_uploader("CSV 파일 업로드", type=["csv"], label_visibility="collapsed")
+            
+            if uploaded_file is not None:
+                if st.button("🔄 이 파일로 전체 데이터 교체하기", use_container_width=True, type="primary"):
+                    try:
+                        new_df = pd.read_csv(uploaded_file)
+                        
+                        # 날짜 컬럼 형변환 (CSV는 문자열로 들어오므로 날짜로 변환)
+                        if '시작일' in new_df.columns:
+                            new_df['시작일'] = pd.to_datetime(new_df['시작일']).dt.date
+                        if '종료일' in new_df.columns:
+                            new_df['종료일'] = pd.to_datetime(new_df['종료일']).dt.date
+                        
+                        # 필수 컬럼 체크
+                        required_cols = ['프로모션명', '담당자', '상태', '진척율']
+                        if all(col in new_df.columns for col in required_cols):
+                            st.session_state.promotions = new_df
+                            st.success("데이터가 성공적으로 교체되었습니다!")
+                            safe_rerun()
+                        else:
+                            st.error(f"CSV 파일에 필수 컬럼이 없습니다: {', '.join(required_cols)}")
+
+                    except Exception as e:
+                        st.error(f"오류가 발생했습니다: {e}")
