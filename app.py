@@ -21,7 +21,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# [1단계] 글로벌 로그인 (입구 컷) - 비밀번호: DK2026
+# [1단계] 글로벌 로그인 (입구 컷) - 비밀번호: dk2026
 # ---------------------------------------------------------
 if 'is_global_unlocked' not in st.session_state:
     st.session_state.is_global_unlocked = False
@@ -33,7 +33,7 @@ if not st.session_state.is_global_unlocked:
     global_password = st.text_input("접속 암호", type="password", key="global_pw")
     
     if st.button("시스템 접속"):
-        if global_password == "DK2026":
+        if global_password == "dk2026":
             st.session_state.is_global_unlocked = True
             st.toast("접속 승인되었습니다.", icon="🔓")
             safe_rerun()
@@ -45,7 +45,7 @@ if not st.session_state.is_global_unlocked:
 
 
 # =========================================================
-# [메인 앱] 여기서부터는 DK2026 통과한 사람만 볼 수 있음
+# [메인 앱] 여기서부터는 dk2026 통과한 사람만 볼 수 있음
 # =========================================================
 
 # 초기 데이터 설정
@@ -279,3 +279,4 @@ elif page == "⚙️ 관리자 페이지":
 
                     except Exception as e:
                         st.error(f"오류가 발생했습니다: {e}")
+
