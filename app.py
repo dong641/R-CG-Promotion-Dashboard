@@ -3,7 +3,7 @@ import pandas as pd
 import datetime
 
 # ---------------------------------------------------------
-# 호환성 함수 (Streamlit 구버전/신버전 모두 작동하도록 설정)
+# 호환성 함수 (Streamlit 구버전/신버전 모두 작동)
 # ---------------------------------------------------------
 def safe_rerun():
     if hasattr(st, "rerun"):
@@ -12,17 +12,43 @@ def safe_rerun():
         st.experimental_rerun()
 
 # ---------------------------------------------------------
-# 페이지 설정
+# 페이지 설정 (가장 먼저 실행)
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="프로모션 통합 시스템",
-    page_icon="📊",
+    page_icon="🔒",
     layout="wide"
 )
 
 # ---------------------------------------------------------
-# 초기 데이터 설정 (Session State)
+# [1단계] 글로벌 로그인 (입구 컷) - 비밀번호: DK2026
 # ---------------------------------------------------------
+if 'is_global_unlocked' not in st.session_state:
+    st.session_state.is_global_unlocked = False
+
+if not st.session_state.is_global_unlocked:
+    st.title("🔒 프로모션 시스템 접근")
+    st.markdown("### 접속을 위해 보안 코드를 입력하세요.")
+    
+    global_password = st.text_input("접속 암호", type="password", key="global_pw")
+    
+    if st.button("시스템 접속"):
+        if global_password == "DK2026":
+            st.session_state.is_global_unlocked = True
+            st.toast("접속 승인되었습니다.", icon="🔓")
+            safe_rerun()
+        else:
+            st.error("잘못된 암호입니다.")
+            
+    # 글로벌 로그인이 안 되면 여기서 코드 실행 중단
+    st.stop()
+
+
+# =========================================================
+# [메인 앱] 여기서부터는 DK2026 통과한 사람만 볼 수 있음
+# =========================================================
+
+# 초기 데이터 설정
 if 'promotions' not in st.session_state:
     st.session_state.promotions = pd.DataFrame([
         {"프로모션명": "2024 봄 정기 세일", "담당자": "김철수", "상태": "진행중", "진척율": 75, "시작일": datetime.date(2024, 3, 1), "종료일": datetime.date(2024, 3, 15)},
@@ -31,32 +57,27 @@ if 'promotions' not in st.session_state:
         {"프로모션명": "설날 효도 선물전", "담당자": "정수진", "상태": "완료", "진척율": 100, "시작일": datetime.date(2024, 1, 15), "종료일": datetime.date(2024, 2, 9)},
     ])
 
-# 관리자 로그인 상태 초기화
-if 'admin_logged_in' not in st.session_state:
-    st.session_state.admin_logged_in = False
+# 관리자 로그인 상태 초기화 (2단계 잠금용)
+if 'is_admin_unlocked' not in st.session_state:
+    st.session_state.is_admin_unlocked = False
 
-# 데이터 로드
 df = st.session_state.promotions
 
-# ---------------------------------------------------------
-# 사이드바: 페이지 네비게이션
-# ---------------------------------------------------------
+# 사이드바 설정
 with st.sidebar:
     st.title("메뉴")
     page = st.radio("이동할 페이지를 선택하세요", ["📊 대시보드", "⚙️ 관리자 페이지"])
     
     st.divider()
     
-    # 관리자 페이지일 때만 로그아웃 버튼 표시
-    if page == "⚙️ 관리자 페이지" and st.session_state.admin_logged_in:
-        if st.button("로그아웃"):
-            st.session_state.admin_logged_in = False
-            safe_rerun() # 호환성 함수 사용
-    
-    st.info("💡 대시보드는 현황 조회용이며, 데이터 수정은 관리자 페이지에서 가능합니다.")
+    # 전체 로그아웃 버튼
+    if st.button("🚪 시스템 종료 (로그아웃)"):
+        st.session_state.is_global_unlocked = False
+        st.session_state.is_admin_unlocked = False # 관리자 권한도 함께 해제
+        safe_rerun()
 
 # ---------------------------------------------------------
-# 페이지 1: 대시보드 (보기 전용)
+# 페이지 1: 대시보드 (누구나 조회 가능)
 # ---------------------------------------------------------
 if page == "📊 대시보드":
     st.title("📊 프로모션 현황 대시보드")
@@ -87,35 +108,38 @@ if page == "📊 대시보드":
     )
 
 # ---------------------------------------------------------
-# 페이지 2: 관리자 페이지 (비밀번호 보호)
+# 페이지 2: 관리자 페이지 (2단계 잠금) - 비밀번호: diageorcg
 # ---------------------------------------------------------
 elif page == "⚙️ 관리자 페이지":
     st.title("⚙️ 프로모션 데이터 관리")
     
-    # 로그인 되지 않은 경우 -> 비밀번호 입력창 표시
-    if not st.session_state.admin_logged_in:
-        st.markdown("관리자 권한이 필요합니다. 비밀번호를 입력하세요.")
+    # 관리자 권한이 없으면 비밀번호 입력창 표시
+    if not st.session_state.is_admin_unlocked:
+        st.warning("⚠️ 관리자 권한이 필요합니다.")
         
-        # 비밀번호 입력 폼
-        with st.form("login_form"):
-            password = st.text_input("비밀번호", type="password")
-            submit_login = st.form_submit_button("로그인")
+        with st.form("admin_login_form"):
+            admin_pw = st.text_input("관리자 암호", type="password")
+            submit_admin = st.form_submit_button("관리자 로그인")
             
-            if submit_login:
-                if password == "diageorcg":
-                    st.session_state.admin_logged_in = True
-                    st.success("로그인 성공!")
-                    safe_rerun() # 호환성 함수 사용
+            if submit_admin:
+                if admin_pw == "diageorcg":
+                    st.session_state.is_admin_unlocked = True
+                    st.toast("관리자 권한 승인됨", icon="✅")
+                    safe_rerun()
                 else:
-                    st.error("비밀번호가 올바르지 않습니다.")
-                    
-    # 로그인 된 경우 -> 관리자 기능 표시
+                    st.error("관리자 암호가 올바르지 않습니다.")
+    
+    # 관리자 권한이 있으면 기능 표시
     else:
+        # 관리자 로그아웃 버튼 (관리자만 닫기)
+        if st.button("🔒 관리자 모드 종료"):
+            st.session_state.is_admin_unlocked = False
+            safe_rerun()
+            
         st.markdown("프로모션 데이터를 **추가**하거나 **수정**할 수 있는 관리자 전용 페이지입니다.")
-
         st.divider()
 
-        # 1. 새 프로모션 등록 (Expander로 깔끔하게 처리)
+        # 1. 새 프로모션 등록
         with st.expander("➕ 새 프로모션 등록하기", expanded=False):
             with st.form("add_promo_form"):
                 col_a, col_b = st.columns(2)
@@ -143,7 +167,7 @@ elif page == "⚙️ 관리자 페이지":
                         }])
                         st.session_state.promotions = pd.concat([st.session_state.promotions, new_data], ignore_index=True)
                         st.success(f"'{new_name}' 등록이 완료되었습니다.")
-                        safe_rerun() # 호환성 함수 사용
+                        safe_rerun()
                     else:
                         st.error("프로모션명과 담당자는 필수 입력입니다.")
 
@@ -153,11 +177,9 @@ elif page == "⚙️ 관리자 페이지":
         st.subheader("✏️ 데이터 수정 및 삭제")
         st.caption("아래 표에서 내용을 직접 수정하거나 행을 선택해 관리하세요.")
 
-        # 데이터 에디터 설정
         edited_df = st.data_editor(
             df,
             column_config={
-                # 진척율을 숫자로 직접 입력할 수 있도록 NumberColumn으로 변경
                 "진척율": st.column_config.NumberColumn(
                     "진척율",
                     help="진척율을 숫자로 입력하세요 (0~100)",
@@ -176,6 +198,13 @@ elif page == "⚙️ 관리자 페이지":
             },
             hide_index=True,
             use_container_width=True,
-            num_rows="dynamic", # 행 추가/삭제 허용
+            num_rows="dynamic",
             key="editor"
         )
+
+        if not df.equals(edited_df):
+            st.session_state.promotions = edited_df
+            try:
+                st.toast("변경사항이 저장되었습니다!", icon="✅")
+            except AttributeError:
+                pass
