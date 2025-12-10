@@ -21,7 +21,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# [1단계] 글로벌 로그인 (입구 컷) - 비밀번호: DK2026
+# [1단계] 글로벌 로그인 (입구 컷) - 비밀번호: dk2026
 # ---------------------------------------------------------
 if 'is_global_unlocked' not in st.session_state:
     st.session_state.is_global_unlocked = False
@@ -33,7 +33,7 @@ if not st.session_state.is_global_unlocked:
     global_password = st.text_input("접속 암호", type="password", key="global_pw")
     
     if st.button("시스템 접속"):
-        if global_password == "DK2026":
+        if global_password == "dk2026":
             st.session_state.is_global_unlocked = True
             st.toast("접속 승인되었습니다.", icon="🔓")
             safe_rerun()
@@ -46,7 +46,7 @@ if not st.session_state.is_global_unlocked:
 # [메인 앱]
 # =========================================================
 
-# 초기 데이터 설정 (채널 컬럼 추가)
+# 초기 데이터 설정
 if 'promotions' not in st.session_state:
     st.session_state.promotions = pd.DataFrame([
         {"프로모션명": "2024 봄 정기 세일", "채널": "Off Trade", "담당자": "김철수", "상태": "진행중", "진척율": 75, "시작일": datetime.date(2024, 3, 1), "종료일": datetime.date(2024, 3, 15)},
@@ -78,68 +78,63 @@ with st.sidebar:
 if page == "📊 대시보드":
     st.title("📊 프로모션 현황 대시보드")
     
-    # 1. 상단: 통합 검색 및 필터 (슬라이서)
-    with st.expander("🔍 상세 검색 및 필터 (슬라이서)", expanded=True):
-        st.markdown("원하는 조건으로 데이터를 좁혀서 볼 수 있습니다.")
+    # [UX 최적화] 모바일에서 핵심 지표를 가장 먼저 보여주기 위해 컨테이너를 상단에 배치
+    # 실제 데이터 계산(필터링)은 아래에서 하더라도, 표시는 여기서 되도록 자리 맡아두기
+    metrics_container = st.container()
+
+    st.divider()
+    
+    # 2. 상세 검색 및 필터 (슬라이서) - 서머리 아래로 배치
+    with st.expander("🔍 상세 검색 및 필터 (슬라이서)", expanded=False):
+        st.caption("원하는 조건으로 데이터를 좁혀서 볼 수 있습니다.")
         
-        # 동적 필터 생성: 날짜/숫자를 제외한 모든 문자열 컬럼에 대해 멀티셀렉트 생성
+        # 필터 UI 생성
         filter_cols = st.columns(3)
         filtered_df = df.copy()
         
-        # 제외할 기본 컬럼 (필터링 굳이 필요 없는 것들)
         exclude_cols = ['진척율', '시작일', '종료일']
-        
-        # 사용 가능한 컬럼 중 필터로 만들 컬럼 선정
         valid_filter_cols = [c for c in df.columns if c not in exclude_cols]
         
-        # 필터 적용 로직
         for i, col_name in enumerate(valid_filter_cols):
             with filter_cols[i % 3]:
-                # 각 컬럼의 유니크한 값 추출
                 unique_vals = df[col_name].unique()
                 selected_vals = st.multiselect(
                     f"{col_name}",
                     unique_vals,
                     placeholder="전체"
                 )
-                
-                # 선택된 값이 있으면 해당 값으로 데이터 필터링
                 if selected_vals:
                     filtered_df = filtered_df[filtered_df[col_name].isin(selected_vals)]
 
-    st.divider()
+    # 3. [지표 표시] 계산된 filtered_df를 사용하여 상단 컨테이너에 지표 채워넣기
+    with metrics_container:
+        st.markdown("#### 📈 전체 현황 요약")
+        # 모바일 가독성을 위해 cols를 4개가 아닌 2개/2개로 나누거나 4개 유지 (Streamlit은 자동 줄바꿈 지원)
+        col1, col2, col3, col4 = st.columns(4)
+        
+        col1.metric("조회된 프로모션", f"{len(filtered_df)}건")
+        col2.metric("진행중", f"{len(filtered_df[filtered_df['상태'] == '진행중'])}건")
+        col3.metric("완료", f"{len(filtered_df[filtered_df['상태'] == '완료'])}건")
+        
+        avg_progress = filtered_df['진척율'].mean() if not filtered_df.empty else 0
+        col4.metric("평균 진척율", f"{avg_progress:.1f}%")
 
-    # 2. 핵심 지표 (필터링된 데이터 기준)
-    # 필터링 결과가 filtered_df에 있으므로 이를 기준으로 지표 산출
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("조회된 프로모션", f"{len(filtered_df)}건")
-    col2.metric("진행중 (조회내)", f"{len(filtered_df[filtered_df['상태'] == '진행중'])}건")
-    col3.metric("완료 (조회내)", f"{len(filtered_df[filtered_df['상태'] == '완료'])}건")
-    
-    avg_progress = filtered_df['진척율'].mean() if not filtered_df.empty else 0
-    col4.metric("평균 진척율", f"{avg_progress:.1f}%")
-
     st.divider()
     
-    # 3. 데이터 목록 조회
+    # 4. 데이터 목록 조회
     st.subheader("📋 프로모션 상세 목록")
-    st.caption("헤더를 클릭하면 정렬(Sort)할 수 있습니다.")
 
     # 탭 구성 (진행중 / 완료 / 전체)
-    # 필터링된 데이터 안에서 상태별로 탭을 나눕니다.
     df_active = filtered_df[filtered_df['상태'] != '완료']
     df_completed = filtered_df[filtered_df['상태'] == '완료']
 
     tab1, tab2, tab3 = st.tabs([f"🔥 진행 중 ({len(df_active)})", f"✅ 완료됨 ({len(df_completed)})", f"📑 전체 목록 ({len(filtered_df)})"])
 
-    # 공통 컬럼 설정
     common_config = {
         "진척율": st.column_config.ProgressColumn("진척율", format="%d%%", min_value=0, max_value=100),
         "상태": st.column_config.TextColumn("상태"),
     }
     
-    # 동적 컬럼들을 위해 나머지 컬럼은 기본 텍스트 등으로 자동 처리됨
-    # 채널 컬럼이 있다면 설정 추가
     if "채널" in df.columns:
         common_config["채널"] = st.column_config.TextColumn("채널", help="판매 채널 구분")
 
@@ -175,7 +170,7 @@ elif page == "⚙️ 관리자 페이지":
             
         st.divider()
 
-        # [기능 업그레이드] 컬럼 관리 섹션 (추가/삭제)
+        # [컬럼 관리 섹션]
         st.subheader("🛠️ 데이터 항목(컬럼) 관리")
         
         col_mgt1, col_mgt2 = st.columns(2)
@@ -186,7 +181,7 @@ elif page == "⚙️ 관리자 페이지":
                 new_col_name = st.text_input("추가할 항목 이름 (예: 예산, 지역)")
                 if st.button("컬럼 추가", use_container_width=True):
                     if new_col_name and new_col_name not in st.session_state.promotions.columns:
-                        st.session_state.promotions[new_col_name] = "-"  # 기본값 설정
+                        st.session_state.promotions[new_col_name] = "-"
                         st.success(f"'{new_col_name}' 항목이 추가되었습니다.")
                         safe_rerun()
                     elif new_col_name in st.session_state.promotions.columns:
@@ -197,8 +192,6 @@ elif page == "⚙️ 관리자 페이지":
         # 2. 컬럼 삭제
         with col_mgt2:
             with st.expander("항목 삭제하기"):
-                # 삭제 가능한 컬럼 목록 (기본 필수 컬럼 보호 가능, 여기서는 전체 허용하되 경고)
-                # 기본적으로 보호해야 할 컬럼들
                 protected_cols = ['프로모션명', '상태', '진척율']
                 deletable_cols = [c for c in df.columns if c not in protected_cols]
                 
@@ -218,37 +211,24 @@ elif page == "⚙️ 관리자 페이지":
         with st.expander("➕ 새 프로모션 등록하기", expanded=False):
             with st.form("add_promo_form"):
                 st.markdown("**기본 정보**")
-                # 동적 폼 생성: 현재 존재하는 컬럼에 맞춰 입력창 자동 생성
-                # 필수 컬럼과 동적 컬럼 분리
                 
-                # 고정된 레이아웃을 위한 주요 필드
                 col_a, col_b = st.columns(2)
                 new_name = col_a.text_input("프로모션명")
-                
-                # 상태는 셀렉트박스로
                 new_status = col_b.selectbox("상태", ["기획단계", "대기", "진행중", "완료", "보류"])
-                
                 new_progress = st.slider("초기 진척율 (%)", 0, 100, 0)
                 
-                # 나머지 동적 컬럼들에 대한 입력창 생성
                 dynamic_inputs = {}
-                
-                # 날짜 컬럼 등 특수 처리 제외한 나머지 문자열 컬럼들
                 reserved_cols = ['프로모션명', '상태', '진척율', '시작일', '종료일']
                 other_cols = [c for c in df.columns if c not in reserved_cols]
                 
-                # 날짜 입력
                 col_c, col_d = st.columns(2)
                 new_start = col_c.date_input("시작일", datetime.date.today())
                 new_end = col_d.date_input("종료일", datetime.date.today() + datetime.timedelta(days=7))
 
-                # 동적 컬럼 입력창 배치 (3열로 배치)
                 if other_cols:
                     st.markdown("**추가 정보 입력**")
                     cols = st.columns(3)
                     for i, col_name in enumerate(other_cols):
-                        # 채널 같은 경우 선택박스로 주면 좋겠지만, 동적 컬럼이므로 텍스트 인풋이 안전
-                        # 단, '채널'이라는 이름이면 선택박스 제공 등 커스텀 가능
                         if col_name == '채널':
                             dynamic_inputs[col_name] = cols[i % 3].selectbox(col_name, ["On Trade", "Off Trade", "기타"])
                         else:
@@ -263,9 +243,7 @@ elif page == "⚙️ 관리자 페이지":
                             "시작일": new_start,
                             "종료일": new_end
                         }
-                        # 동적 입력값 병합
                         new_row.update(dynamic_inputs)
-                                
                         new_data = pd.DataFrame([new_row])
                         st.session_state.promotions = pd.concat([st.session_state.promotions, new_data], ignore_index=True)
                         st.success("등록 완료")
@@ -285,7 +263,6 @@ elif page == "⚙️ 관리자 페이지":
             "종료일": st.column_config.DateColumn("종료일", format="YYYY-MM-DD"),
         }
         
-        # 채널 컬럼이 존재한다면 selectbox로 설정
         if "채널" in df.columns:
             column_configuration["채널"] = st.column_config.SelectboxColumn("채널", options=["On Trade", "Off Trade", "기타"])
 
@@ -318,7 +295,6 @@ elif page == "⚙️ 관리자 페이지":
             if uploaded_file and st.button("🔄 교체하기", use_container_width=True):
                 try:
                     new_df = pd.read_csv(uploaded_file)
-                    # 날짜 변환
                     for col in ['시작일', '종료일']:
                         if col in new_df.columns:
                             new_df[col] = pd.to_datetime(new_df[col]).dt.date
