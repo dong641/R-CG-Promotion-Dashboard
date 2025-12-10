@@ -21,7 +21,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# [1단계] 글로벌 로그인 (입구 컷) - 비밀번호: dk2026
+# [1단계] 글로벌 로그인 (입구 컷) - 비밀번호: DK2026
 # ---------------------------------------------------------
 if 'is_global_unlocked' not in st.session_state:
     st.session_state.is_global_unlocked = False
@@ -33,7 +33,7 @@ if not st.session_state.is_global_unlocked:
     global_password = st.text_input("접속 암호", type="password", key="global_pw")
     
     if st.button("시스템 접속"):
-        if global_password == "dk2026":
+        if global_password == "DK2026":
             st.session_state.is_global_unlocked = True
             st.toast("접속 승인되었습니다.", icon="🔓")
             safe_rerun()
@@ -79,37 +79,40 @@ if page == "📊 대시보드":
     st.title("📊 프로모션 현황 대시보드")
     
     # [UX 최적화] 모바일에서 핵심 지표를 가장 먼저 보여주기 위해 컨테이너를 상단에 배치
-    # 실제 데이터 계산(필터링)은 아래에서 하더라도, 표시는 여기서 되도록 자리 맡아두기
     metrics_container = st.container()
 
     st.divider()
     
-    # 2. 상세 검색 및 필터 (슬라이서) - 서머리 아래로 배치
-    with st.expander("🔍 상세 검색 및 필터 (슬라이서)", expanded=False):
-        st.caption("원하는 조건으로 데이터를 좁혀서 볼 수 있습니다.")
+    # 2. 상세 검색 및 필터 (연동형 슬라이서)
+    with st.expander("🔍 상세 검색 및 필터 (슬라이서)", expanded=True):
+        st.caption("앞쪽(왼쪽) 필터를 선택하면 뒤쪽(오른쪽) 필터의 선택 항목이 자동으로 줄어듭니다.")
         
         # 필터 UI 생성
         filter_cols = st.columns(3)
-        filtered_df = df.copy()
+        filtered_df = df.copy() # 누적 필터링을 위한 임시 DataFrame
         
         exclude_cols = ['진척율', '시작일', '종료일']
         valid_filter_cols = [c for c in df.columns if c not in exclude_cols]
         
+        # [핵심 로직] 순차적 필터링 (Cascading Filtering)
         for i, col_name in enumerate(valid_filter_cols):
             with filter_cols[i % 3]:
-                unique_vals = df[col_name].unique()
+                # 전체 데이터가 아니라, '앞 단계에서 필터링된 데이터(filtered_df)'의 유니크 값만 가져옵니다.
+                unique_vals = sorted(filtered_df[col_name].astype(str).unique())
+                
                 selected_vals = st.multiselect(
                     f"{col_name}",
                     unique_vals,
                     placeholder="전체"
                 )
+                
+                # 선택된 값이 있다면, filtered_df를 즉시 업데이트하여 다음 루프(다음 필터)에 영향을 줍니다.
                 if selected_vals:
-                    filtered_df = filtered_df[filtered_df[col_name].isin(selected_vals)]
+                    filtered_df = filtered_df[filtered_df[col_name].astype(str).isin(selected_vals)]
 
     # 3. [지표 표시] 계산된 filtered_df를 사용하여 상단 컨테이너에 지표 채워넣기
     with metrics_container:
         st.markdown("#### 📈 전체 현황 요약")
-        # 모바일 가독성을 위해 cols를 4개가 아닌 2개/2개로 나누거나 4개 유지 (Streamlit은 자동 줄바꿈 지원)
         col1, col2, col3, col4 = st.columns(4)
         
         col1.metric("조회된 프로모션", f"{len(filtered_df)}건")
@@ -124,7 +127,7 @@ if page == "📊 대시보드":
     # 4. 데이터 목록 조회
     st.subheader("📋 프로모션 상세 목록")
 
-    # 탭 구성 (진행중 / 완료 / 전체)
+    # 탭 구성
     df_active = filtered_df[filtered_df['상태'] != '완료']
     df_completed = filtered_df[filtered_df['상태'] == '완료']
 
