@@ -21,7 +21,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# [1단계] 글로벌 로그인 (입구 컷) - 비밀번호: DK2026
+# [1단계] 글로벌 로그인 (입구 컷) - 비밀번호: dk2026
 # ---------------------------------------------------------
 if 'is_global_unlocked' not in st.session_state:
     st.session_state.is_global_unlocked = False
@@ -33,7 +33,7 @@ if not st.session_state.is_global_unlocked:
     global_password = st.text_input("접속 암호", type="password", key="global_pw")
     
     if st.button("시스템 접속"):
-        if global_password == "DK2026":
+        if global_password == "dk2026":
             st.session_state.is_global_unlocked = True
             st.toast("접속 승인되었습니다.", icon="🔓")
             safe_rerun()
@@ -87,30 +87,25 @@ if page == "📊 대시보드":
     with st.expander("🔍 상세 검색 및 필터 (슬라이서)", expanded=True):
         st.caption("앞쪽(왼쪽) 필터를 선택하면 뒤쪽(오른쪽) 필터의 선택 항목이 자동으로 줄어듭니다.")
         
-        # 필터 UI 생성
         filter_cols = st.columns(3)
-        filtered_df = df.copy() # 누적 필터링을 위한 임시 DataFrame
+        filtered_df = df.copy() 
         
         exclude_cols = ['진척율', '시작일', '종료일']
         valid_filter_cols = [c for c in df.columns if c not in exclude_cols]
         
-        # [핵심 로직] 순차적 필터링 (Cascading Filtering)
         for i, col_name in enumerate(valid_filter_cols):
             with filter_cols[i % 3]:
-                # 전체 데이터가 아니라, '앞 단계에서 필터링된 데이터(filtered_df)'의 유니크 값만 가져옵니다.
                 unique_vals = sorted(filtered_df[col_name].astype(str).unique())
-                
                 selected_vals = st.multiselect(
                     f"{col_name}",
                     unique_vals,
-                    placeholder="전체"
+                    placeholder="전체",
+                    key=f"dash_filter_{col_name}"  # 키 충돌 방지
                 )
-                
-                # 선택된 값이 있다면, filtered_df를 즉시 업데이트하여 다음 루프(다음 필터)에 영향을 줍니다.
                 if selected_vals:
                     filtered_df = filtered_df[filtered_df[col_name].astype(str).isin(selected_vals)]
 
-    # 3. [지표 표시] 계산된 filtered_df를 사용하여 상단 컨테이너에 지표 채워넣기
+    # 3. [지표 표시]
     with metrics_container:
         st.markdown("#### 📈 전체 현황 요약")
         col1, col2, col3, col4 = st.columns(4)
@@ -127,7 +122,6 @@ if page == "📊 대시보드":
     # 4. 데이터 목록 조회
     st.subheader("📋 프로모션 상세 목록")
 
-    # 탭 구성
     df_active = filtered_df[filtered_df['상태'] != '완료']
     df_completed = filtered_df[filtered_df['상태'] == '완료']
 
@@ -175,10 +169,8 @@ elif page == "⚙️ 관리자 페이지":
 
         # [컬럼 관리 섹션]
         st.subheader("🛠️ 데이터 항목(컬럼) 관리")
-        
         col_mgt1, col_mgt2 = st.columns(2)
         
-        # 1. 컬럼 추가
         with col_mgt1:
             with st.expander("항목 추가하기"):
                 new_col_name = st.text_input("추가할 항목 이름 (예: 예산, 지역)")
@@ -192,14 +184,11 @@ elif page == "⚙️ 관리자 페이지":
                     else:
                         st.error("항목 이름을 입력하세요.")
         
-        # 2. 컬럼 삭제
         with col_mgt2:
             with st.expander("항목 삭제하기"):
                 protected_cols = ['프로모션명', '상태', '진척율']
                 deletable_cols = [c for c in df.columns if c not in protected_cols]
-                
                 del_col_name = st.selectbox("삭제할 항목 선택", deletable_cols)
-                
                 if st.button("선택한 항목 삭제", type="primary", use_container_width=True):
                     if del_col_name:
                         st.session_state.promotions = st.session_state.promotions.drop(columns=[del_col_name])
@@ -214,7 +203,6 @@ elif page == "⚙️ 관리자 페이지":
         with st.expander("➕ 새 프로모션 등록하기", expanded=False):
             with st.form("add_promo_form"):
                 st.markdown("**기본 정보**")
-                
                 col_a, col_b = st.columns(2)
                 new_name = col_a.text_input("프로모션명")
                 new_status = col_b.selectbox("상태", ["기획단계", "대기", "진행중", "완료", "보류"])
@@ -256,8 +244,37 @@ elif page == "⚙️ 관리자 페이지":
 
         st.divider()
 
-        # 2. 데이터 수정 에디터
+        # 2. 데이터 수정 에디터 (여기에 슬라이서 추가)
         st.subheader("✏️ 전체 데이터 수정")
+        
+        # [관리자 페이지 슬라이서 추가]
+        with st.expander("🔍 데이터 필터링 (수정할 데이터 찾기)", expanded=False):
+            st.info("필터링된 상태에서는 **데이터 수정**만 가능하며, 행 추가/삭제는 제한됩니다.")
+            
+            admin_filter_cols = st.columns(3)
+            filtered_admin_df = df.copy() 
+            
+            exclude_cols = ['진척율', '시작일', '종료일']
+            valid_admin_filter_cols = [c for c in df.columns if c not in exclude_cols]
+            
+            # 연동형 필터 로직
+            for i, col_name in enumerate(valid_admin_filter_cols):
+                with admin_filter_cols[i % 3]:
+                    unique_vals = sorted(filtered_admin_df[col_name].astype(str).unique())
+                    selected_vals = st.multiselect(
+                        f"{col_name}",
+                        unique_vals,
+                        placeholder="전체",
+                        key=f"admin_filter_{col_name}" # 대시보드와 키 중복 방지
+                    )
+                    if selected_vals:
+                        filtered_admin_df = filtered_admin_df[filtered_admin_df[col_name].astype(str).isin(selected_vals)]
+        
+        # 필터 적용 여부 확인
+        is_filtered = len(filtered_admin_df) != len(df)
+        
+        # 필터 적용 시 행 추가/삭제 비활성화 (수정만 가능)
+        row_mode = "fixed" if is_filtered else "dynamic"
         
         column_configuration = {
             "진척율": st.column_config.NumberColumn("진척율", min_value=0, max_value=100, format="%d%%"),
@@ -265,25 +282,32 @@ elif page == "⚙️ 관리자 페이지":
             "시작일": st.column_config.DateColumn("시작일", format="YYYY-MM-DD"),
             "종료일": st.column_config.DateColumn("종료일", format="YYYY-MM-DD"),
         }
-        
         if "채널" in df.columns:
             column_configuration["채널"] = st.column_config.SelectboxColumn("채널", options=["On Trade", "Off Trade", "기타"])
 
+        # 데이터 에디터 표시 (필터링된 데이터 or 전체 데이터)
         edited_df = st.data_editor(
-            df,
+            filtered_admin_df,
             column_config=column_configuration,
             hide_index=True,
             use_container_width=True,
-            num_rows="dynamic",
-            key="editor"
+            num_rows=row_mode, # 필터 시 fixed, 아니면 dynamic
+            key="admin_editor"
         )
 
-        if not df.equals(edited_df):
-            st.session_state.promotions = edited_df
-            try:
-                st.toast("저장됨!", icon="✅")
-            except:
-                pass
+        # 데이터 저장 로직
+        if not filtered_admin_df.equals(edited_df):
+            if is_filtered:
+                # 필터링 상태: 기존 데이터에 수정사항만 업데이트 (Update)
+                st.session_state.promotions.update(edited_df)
+                st.toast("선택된 데이터가 수정되었습니다!", icon="✅")
+            else:
+                # 전체 모드: 전체 데이터 교체 (행 추가/삭제 반영)
+                st.session_state.promotions = edited_df
+                try:
+                    st.toast("전체 데이터가 저장되었습니다!", icon="✅")
+                except:
+                    pass
                 
         st.divider()
 
