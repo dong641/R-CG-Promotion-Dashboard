@@ -21,7 +21,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# [1단계] 글로벌 로그인 (입구 컷) - 비밀번호: DK2026
+# [1단계] 글로벌 로그인 (입구 컷) - 비밀번호: dk2026
 # ---------------------------------------------------------
 if 'is_global_unlocked' not in st.session_state:
     st.session_state.is_global_unlocked = False
@@ -33,7 +33,7 @@ if not st.session_state.is_global_unlocked:
     global_password = st.text_input("접속 암호", type="password", key="global_pw")
     
     if st.button("시스템 접속"):
-        if global_password == "DK2026":
+        if global_password == "dk2026":
             st.session_state.is_global_unlocked = True
             st.toast("접속 승인되었습니다.", icon="🔓")
             safe_rerun()
@@ -208,3 +208,4 @@ elif page == "⚙️ 관리자 페이지":
                 st.toast("변경사항이 저장되었습니다!", icon="✅")
             except AttributeError:
                 pass
+
