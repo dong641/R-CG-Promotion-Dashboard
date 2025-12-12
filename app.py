@@ -20,21 +20,24 @@ def init_data():
     if not os.path.exists(DATA_FILE):
         data = [
             {"No": 1, "프로모션명": "2025 설날 선물세트 기획", "카테고리": "온트레이드", "담당자": "김철수", "시작일": "2025-01-01", "종료일": "2025-02-15", "진척률": 80, "상태": "진행중"},
-            {"No": 2, "신제품 팝업스토어 운영", "카테고리": "오프라인", "담당자": "이영희", "시작일": "2025-02-01", "종료일": "2025-02-28", "진척률": 30, "상태": "지연"},
-            {"No": 3, "인플루언서 바이럴 캠페인", "카테고리": "디지털", "담당자": "박지민", "시작일": "2025-01-15", "종료일": "2025-03-31", "진척률": 50, "상태": "진행중"},
-            {"No": 4, "VIP 초청 시음회", "카테고리": "행사", "담당자": "최민수", "시작일": "2025-03-01", "종료일": "2025-03-05", "진척률": 10, "상태": "예정"},
+            # [수정됨] 아래 줄들에 "프로모션명": 키가 빠져있던 것을 수정했습니다.
+            {"No": 2, "프로모션명": "신제품 팝업스토어 운영", "카테고리": "오프라인", "담당자": "이영희", "시작일": "2025-02-01", "종료일": "2025-02-28", "진척률": 30, "상태": "지연"},
+            {"No": 3, "프로모션명": "인플루언서 바이럴 캠페인", "카테고리": "디지털", "담당자": "박지민", "시작일": "2025-01-15", "종료일": "2025-03-31", "진척률": 50, "상태": "진행중"},
+            {"No": 4, "프로모션명": "VIP 초청 시음회", "카테고리": "행사", "담당자": "최민수", "시작일": "2025-03-01", "종료일": "2025-03-05", "진척률": 10, "상태": "예정"},
         ]
         df = pd.DataFrame(data)
-        df.to_csv(DATA_FILE, index=False)
+        # 엑셀 호환성(한글 깨짐 방지)을 위해 utf-8-sig 인코딩 사용
+        df.to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
 
 def load_data():
     """CSV 데이터를 불러옵니다."""
     init_data() # 파일 없으면 생성
-    return pd.read_csv(DATA_FILE)
+    # 한글 깨짐 방지를 위해 인코딩 지정
+    return pd.read_csv(DATA_FILE, encoding='utf-8-sig')
 
 def save_data(df):
     """데이터를 CSV로 저장합니다."""
-    df.to_csv(DATA_FILE, index=False)
+    df.to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
 
 # --- 3. 사이드바 (데이터 입력) ---
 st.sidebar.title("📝 관리자 메뉴")
@@ -87,25 +90,47 @@ st.markdown("---")
 # [섹션 1] 핵심 지표 (KPI)
 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 kpi1.metric("총 프로젝트", f"{len(df)}건")
-avg_prog = int(df['진척률'].mean()) if not df.empty else 0
+
+# 진척률 평균 계산 시 에러 방지 (데이터가 비어있거나 문자열일 경우 처리)
+if not df.empty and '진척률' in df.columns:
+    # 혹시 문자열(예: '80%')로 되어 있다면 숫자로 변환
+    if df['진척률'].dtype == object:
+        df['진척률'] = pd.to_numeric(df['진척률'].astype(str).str.replace('%', ''), errors='coerce').fillna(0)
+    avg_prog = int(df['진척률'].mean())
+else:
+    avg_prog = 0
+
 kpi2.metric("평균 진척률", f"{avg_prog}%")
-kpi3.metric("진행중", f"{len(df[df['상태']=='진행중'])}건", delta="Active")
-kpi4.metric("지연됨", f"{len(df[df['상태']=='지연'])}건", delta="-Warning", delta_color="inverse")
+
+# 상태별 카운트
+if not df.empty and '상태' in df.columns:
+    active_count = len(df[df['상태']=='진행중'])
+    delayed_count = len(df[df['상태']=='지연'])
+else:
+    active_count = 0
+    delayed_count = 0
+
+kpi3.metric("진행중", f"{active_count}건", delta="Active")
+kpi4.metric("지연됨", f"{delayed_count}건", delta="-Warning", delta_color="inverse")
 
 # [섹션 2] 간트 차트 (시각화)
 st.subheader("📅 프로젝트 일정 (Gantt Chart)")
 if not df.empty:
-    df['시작일'] = pd.to_datetime(df['시작일'])
-    df['종료일'] = pd.to_datetime(df['종료일'])
-    
-    fig = px.timeline(
-        df, x_start="시작일", x_end="종료일", y="프로모션명", color="상태",
-        title="",
-        color_discrete_map={"완료": "#2ECC71", "진행중": "#3498DB", "지연": "#E74C3C", "예정": "#95A5A6"},
-        hover_data=["담당자", "진척률"]
-    )
-    fig.update_yaxes(autorange="reversed")
-    st.plotly_chart(fig, use_container_width=True)
+    # 날짜 변환 (오류 방지)
+    try:
+        df['시작일'] = pd.to_datetime(df['시작일'])
+        df['종료일'] = pd.to_datetime(df['종료일'])
+        
+        fig = px.timeline(
+            df, x_start="시작일", x_end="종료일", y="프로모션명", color="상태",
+            title="",
+            color_discrete_map={"완료": "#2ECC71", "진행중": "#3498DB", "지연": "#E74C3C", "예정": "#95A5A6"},
+            hover_data=["담당자", "진척률"]
+        )
+        fig.update_yaxes(autorange="reversed")
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.error(f"차트 생성 중 오류가 발생했습니다. 날짜 형식을 확인해주세요. ({e})")
 
 # [섹션 3] 데이터 편집 테이블
 st.subheader("📋 상세 현황 (직접 수정 가능)")
@@ -126,8 +151,11 @@ edited_df = st.data_editor(
 
 # 수정 사항 감지 및 저장
 if not df.equals(edited_df):
-    # 날짜 컬럼을 다시 문자열로 변환하여 저장 (CSV 호환성)
-    edited_df['시작일'] = pd.to_datetime(edited_df['시작일']).dt.date
-    edited_df['종료일'] = pd.to_datetime(edited_df['종료일']).dt.date
-    save_data(edited_df)
-    st.toast("변경 사항이 저장되었습니다!", icon="💾")
+    try:
+        # 날짜 컬럼을 다시 문자열로 변환하여 저장 (CSV 호환성)
+        edited_df['시작일'] = pd.to_datetime(edited_df['시작일']).dt.date
+        edited_df['종료일'] = pd.to_datetime(edited_df['종료일']).dt.date
+        save_data(edited_df)
+        st.toast("변경 사항이 저장되었습니다!", icon="💾")
+    except Exception as e:
+        st.warning(f"저장 중 형식이 맞지 않는 데이터가 있어 일부만 저장되었을 수 있습니다. ({e})")
