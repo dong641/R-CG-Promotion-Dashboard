@@ -41,8 +41,14 @@ def load_weekly_tasks():
     if os.path.exists(WEEKLY_TASK_FILE):
         try:
             df = pd.read_csv(WEEKLY_TASK_FILE)
+            # 날짜 컬럼 변환
             if 'Due_Date' in df.columns:
                 df['Due_Date'] = pd.to_datetime(df['Due_Date'], errors='coerce').dt.date
+            
+            # [수정] 필터링을 위해 Week_Start를 반드시 문자열로 변환
+            if 'Week_Start' in df.columns:
+                df['Week_Start'] = df['Week_Start'].astype(str)
+                
             return df
         except:
             return pd.DataFrame(columns=["Week_Start", "Assignee", "Category", "Content", "Due_Date", "Status"])
@@ -72,6 +78,7 @@ def add_weekly_tasks_batch(new_rows_df):
         return False
         
     df = load_weekly_tasks()
+    # 기존 데이터와 병합
     df = pd.concat([df, new_rows_df], ignore_index=True)
     
     try:
@@ -174,7 +181,7 @@ if page == "📊 대시보드":
     with t3: st.dataframe(filtered_df, column_config=cfg, use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------
-# [수정] 2. 주간 업무 페이지
+# 2. 주간 업무 페이지
 # ---------------------------------------------------------
 elif page == "📅 주간 업무":
     st.title("📅 주간 업무 대시보드")
@@ -187,12 +194,15 @@ elif page == "📅 주간 업무":
     start_of_week = pick_date - datetime.timedelta(days=pick_date.weekday())
     end_of_week = start_of_week + datetime.timedelta(days=6)
     
+    # [수정] 날짜를 문자열로 명확하게 변환 (비교용)
+    start_of_week_str = str(start_of_week)
+    
     with col_week_info:
         st.info(f"📆 **선택된 주간**: {start_of_week} (월) ~ {end_of_week} (일)")
 
     st.divider()
 
-    # 2. 업무 등록 (개선된 UI: 작성자 선택 -> 표 입력)
+    # 2. 업무 등록
     with st.expander("➕ 내 업무 등록 (Click)", expanded=True):
         st.markdown("#### 1️⃣ 작성자 선택")
         managers = list(st.session_state.promotions['담당자'].unique()) if '담당자' in st.session_state.promotions.columns else []
@@ -207,9 +217,8 @@ elif page == "📅 주간 업무":
                 real_assignee = selected_assignee
 
         st.markdown("#### 2️⃣ 업무 내용 입력")
-        st.caption("아래 표에 업무를 입력하세요. 여러 건을 한 번에 입력할 수 있습니다.")
+        st.caption("아래 표에 업무를 입력하세요.")
 
-        # 기본 입력 폼 데이터 구조 (담당자 컬럼 제거)
         input_template = pd.DataFrame(columns=["Category", "Content", "Due_Date"])
         
         column_config = {
@@ -227,65 +236,68 @@ elif page == "📅 주간 업무":
         )
         
         if st.button("💾 입력한 업무 등록하기", type="primary"):
-            if not edited_input.empty and real_assignee:
-                # 데이터 가공
-                valid_rows = edited_input.dropna(subset=['Category', 'Content']).copy()
-                if not valid_rows.empty:
-                    valid_rows['Assignee'] = real_assignee  # 선택한 담당자 일괄 적용
-                    valid_rows['Week_Start'] = str(start_of_week)
-                    valid_rows['Status'] = '진행중'
+            if real_assignee:
+                # [수정] 데이터 유효성 검사 강화 (내용이 있는 행만 추출)
+                if not edited_input.empty:
+                    # Content가 비어있지 않은 행만 유효한 것으로 간주
+                    edited_input = edited_input.dropna(subset=['Content'])
+                    valid_rows = edited_input[edited_input['Content'].str.strip() != ""].copy()
                     
-                    if add_weekly_tasks_batch(valid_rows):
-                        st.toast(f"{len(valid_rows)}건의 업무가 등록되었습니다!", icon="✅")
-                        safe_rerun()
+                    if not valid_rows.empty:
+                        valid_rows['Assignee'] = real_assignee
+                        valid_rows['Week_Start'] = start_of_week_str # 문자열로 저장
+                        valid_rows['Status'] = '진행중'
+                        
+                        # Category가 비어있으면 기본값 설정
+                        if 'Category' not in valid_rows.columns or valid_rows['Category'].isnull().any():
+                             valid_rows['Category'] = valid_rows['Category'].fillna("금주 실적")
+                        
+                        if add_weekly_tasks_batch(valid_rows):
+                            st.toast(f"{len(valid_rows)}건의 업무가 등록되었습니다!", icon="✅")
+                            safe_rerun()
+                    else:
+                        st.error("업무 내용을 입력해주세요.")
                 else:
-                    st.error("내용을 입력해주세요.")
-            elif not real_assignee:
-                st.error("작성자(담당자)를 선택해주세요.")
+                    st.warning("입력된 내용이 없습니다.")
             else:
-                st.warning("입력된 내용이 없습니다.")
+                st.error("작성자(담당자)를 선택해주세요.")
 
     st.divider()
 
-    # 3. 주간 업무 전체 조회 (모든 담당자 표시)
+    # 3. 주간 업무 전체 조회
     st.subheader(f"📋 {start_of_week} 주간 전체 업무 현황")
     
     all_tasks = load_weekly_tasks()
-    current_week_tasks = all_tasks[all_tasks['Week_Start'] == str(start_of_week)]
+    
+    # [수정] 날짜 필터링 시 둘 다 문자열로 변환하여 비교
+    # all_tasks['Week_Start']는 load_weekly_tasks에서 이미 문자열로 변환됨
+    current_week_tasks = all_tasks[all_tasks['Week_Start'] == start_of_week_str]
     
     if not current_week_tasks.empty:
-        # 데이터 정렬 (담당자 -> 날짜 순)
         current_week_tasks = current_week_tasks.sort_values(by=['Assignee', 'Category'])
         
-        # 3단 컬럼 구성 (금주 실적 / 차주 계획 / 이슈 사항)
         col_achieve, col_plan, col_issue = st.columns(3)
-        
-        # 공통 컬럼 설정 (담당자 포함)
         view_config = {
             "Content": st.column_config.TextColumn("내용", width="large"),
             "Assignee": st.column_config.TextColumn("담당자", width="small"),
             "Due_Date": st.column_config.DateColumn("기한", format="MM-DD", width="small"),
         }
         
-        # 1. 금주 실적
         with col_achieve:
             st.markdown("##### ✅ 금주 실적")
-            df_achieve = current_week_tasks[current_week_tasks['Category'] == "금주 실적"][['Assignee', 'Content', 'Due_Date']]
-            st.dataframe(df_achieve, column_config=view_config, use_container_width=True, hide_index=True)
+            df_view = current_week_tasks[current_week_tasks['Category'] == "금주 실적"][['Assignee', 'Content', 'Due_Date']]
+            st.dataframe(df_view, column_config=view_config, use_container_width=True, hide_index=True)
             
-        # 2. 차주 계획
         with col_plan:
             st.markdown("##### 🗓️ 차주 계획")
-            df_plan = current_week_tasks[current_week_tasks['Category'] == "차주 계획"][['Assignee', 'Content', 'Due_Date']]
-            st.dataframe(df_plan, column_config=view_config, use_container_width=True, hide_index=True)
+            df_view = current_week_tasks[current_week_tasks['Category'] == "차주 계획"][['Assignee', 'Content', 'Due_Date']]
+            st.dataframe(df_view, column_config=view_config, use_container_width=True, hide_index=True)
             
-        # 3. 이슈 사항
         with col_issue:
             st.markdown("##### ⚠️ 이슈 사항")
-            df_issue = current_week_tasks[current_week_tasks['Category'] == "이슈 사항"][['Assignee', 'Content', 'Due_Date']]
-            st.dataframe(df_issue, column_config=view_config, use_container_width=True, hide_index=True)
+            df_view = current_week_tasks[current_week_tasks['Category'] == "이슈 사항"][['Assignee', 'Content', 'Due_Date']]
+            st.dataframe(df_view, column_config=view_config, use_container_width=True, hide_index=True)
 
-        # 삭제 기능
         with st.expander("🗑️ 업무 삭제하기"):
             task_to_delete = st.selectbox(
                 "삭제할 업무 선택", 
@@ -296,7 +308,6 @@ elif page == "📅 주간 업무":
                 if delete_weekly_task(task_to_delete):
                     st.success("삭제되었습니다.")
                     safe_rerun()
-            
     else:
         st.info("해당 주차에 등록된 업무가 없습니다.")
 
@@ -322,7 +333,6 @@ elif page == "⚙️ 관리자 페이지":
             if save_data(st.session_state.draft_df):
                 st.toast("저장 완료")
         
-        # 컬럼 관리
         with st.expander("🛠️ 컬럼 관리"):
             a, b = st.columns(2)
             new = a.text_input("추가할 컬럼")
@@ -330,14 +340,12 @@ elif page == "⚙️ 관리자 페이지":
                 if new and new not in st.session_state.draft_df.columns:
                     st.session_state.draft_df[new] = "-"
                     safe_rerun()
-            
             dels = [c for c in st.session_state.draft_df.columns if c not in ['프로모션명','상태','진척율']]
             target = b.selectbox("삭제할 컬럼", dels)
             if b.button("삭제"):
                 st.session_state.draft_df.drop(columns=[target], inplace=True)
                 safe_rerun()
 
-        # 행 추가
         with st.expander("➕ 데이터 추가"):
             with st.form("add"):
                 st.markdown("**기본 정보**")
@@ -348,21 +356,18 @@ elif page == "⚙️ 관리자 페이지":
                 d1, d2 = st.columns(2)
                 s_dt = d1.date_input("시작", datetime.date.today())
                 e_dt = d2.date_input("종료", datetime.date.today())
-                
                 dyn = {}
                 others = [c for c in st.session_state.draft_df.columns if c not in ['프로모션명','상태','진척율','시작일','종료일']]
                 if others:
                     cols = st.columns(3)
                     for i, c in enumerate(others):
                         dyn[c] = cols[i%3].text_input(c)
-                
                 if st.form_submit_button("추가"):
                     row = {"프로모션명":nm, "상태":stt, "진척율":prg, "시작일":s_dt, "종료일":e_dt}
                     row.update(dyn)
                     st.session_state.draft_df = pd.concat([st.session_state.draft_df, pd.DataFrame([row])], ignore_index=True)
                     safe_rerun()
 
-        # CSV 업로드
         with st.expander("📂 CSV 업로드"):
             up = st.file_uploader("CSV", type=['csv'])
             if up and st.button("교체"):
