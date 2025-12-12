@@ -1,5 +1,7 @@
 Plaintext
-
+streamlit
+pandas
+plotly
 streamlit
 pandas
 plotly
