@@ -40,15 +40,13 @@ def load_weekly_tasks():
     """주간 업무 데이터 로드"""
     if os.path.exists(WEEKLY_TASK_FILE):
         try:
-            df = pd.read_csv(WEEKLY_TASK_FILE)
+            # [수정] 읽어올 때 Week_Start를 문자열로 지정하여 타입 혼동 방지
+            df = pd.read_csv(WEEKLY_TASK_FILE, dtype={'Week_Start': str})
+            
             # 날짜 컬럼 변환
             if 'Due_Date' in df.columns:
                 df['Due_Date'] = pd.to_datetime(df['Due_Date'], errors='coerce').dt.date
             
-            # [핵심] 필터링 오류 방지를 위해 Week_Start를 반드시 문자열로 통일
-            if 'Week_Start' in df.columns:
-                df['Week_Start'] = df['Week_Start'].astype(str)
-                
             return df
         except:
             return pd.DataFrame(columns=["Week_Start", "Assignee", "Category", "Content", "Due_Date", "Status"])
@@ -194,7 +192,7 @@ elif page == "📅 주간 업무":
     start_of_week = pick_date - datetime.timedelta(days=pick_date.weekday())
     end_of_week = start_of_week + datetime.timedelta(days=6)
     
-    # 날짜 비교를 위해 문자열 변환
+    # [중요] 날짜 비교를 위해 문자열 변환 (YYYY-MM-DD 형식)
     start_of_week_str = str(start_of_week)
     
     with col_week_info:
@@ -202,13 +200,13 @@ elif page == "📅 주간 업무":
 
     st.divider()
 
-    # [순서 변경] 2. 주간 업무 전체 조회 (먼저 보여줌)
+    # 2. 주간 업무 전체 조회 (먼저 보여줌)
     st.subheader(f"📋 {start_of_week} 주간 전체 업무 현황")
     
     # 데이터 로드 (매번 최신 데이터를 파일에서 읽어옴)
     all_tasks = load_weekly_tasks()
     
-    # 현재 주차 데이터 필터링 (문자열 비교)
+    # 현재 주차 데이터 필터링 (Week_Start는 둘 다 문자열)
     current_week_tasks = all_tasks[all_tasks['Week_Start'] == start_of_week_str]
     
     if not current_week_tasks.empty:
@@ -253,7 +251,7 @@ elif page == "📅 주간 업무":
 
     st.divider()
 
-    # [순서 변경] 3. 업무 등록 (하단 배치)
+    # 3. 업무 등록 (하단 배치)
     with st.expander("➕ 내 업무 등록 (Click)", expanded=True):
         st.markdown("#### 1️⃣ 작성자 선택")
         managers = list(st.session_state.promotions['담당자'].unique()) if '담당자' in st.session_state.promotions.columns else []
@@ -297,7 +295,7 @@ elif page == "📅 주간 업무":
                     if not valid_rows.empty:
                         # 메타 데이터 추가
                         valid_rows['Assignee'] = real_assignee
-                        valid_rows['Week_Start'] = start_of_week_str # 문자열로 통일하여 저장
+                        valid_rows['Week_Start'] = start_of_week_str # 문자열로 저장
                         valid_rows['Status'] = '진행중'
                         
                         # 구분값이 비어있을 경우 기본값 처리
@@ -306,7 +304,7 @@ elif page == "📅 주간 업무":
                         
                         if add_weekly_tasks_batch(valid_rows):
                             st.toast(f"{len(valid_rows)}건의 업무가 등록되었습니다!", icon="✅")
-                            safe_rerun() # 새로고침 시 상단의 조회 로직이 먼저 실행되어 데이터가 보임
+                            safe_rerun() # [핵심] 저장 후 페이지를 강제로 새로고침하여 상단 현황판을 업데이트함
                     else:
                         st.error("업무 내용을 입력해주세요.")
                 else:
