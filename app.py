@@ -61,20 +61,6 @@ if 'is_admin_unlocked' not in st.session_state:
 
 df = st.session_state.promotions
 
-# [긴급 수정] 데이터 무결성 검사 (CSV 오류 방지)
-# 진척율 컬럼이 문자열(object)로 인식되면 강제로 숫자로 변환합니다.
-if '진척율' in df.columns:
-    try:
-        # 이미 숫자가 아닌 경우(object)에만 처리
-        if df['진척율'].dtype == 'object':
-            # '%' 기호 제거 및 공백 제거
-            df['진척율'] = df['진척율'].astype(str).str.replace('%', '').str.strip()
-            # 숫자로 변환 (오류 발생 시 NaN -> 0으로 채움)
-            df['진척율'] = pd.to_numeric(df['진척율'], errors='coerce').fillna(0).astype(int)
-            st.session_state.promotions = df
-    except Exception:
-        pass # 변환 중 에러가 나도 앱이 멈추지 않도록 함
-
 # 사이드바 설정
 with st.sidebar:
     st.title("메뉴")
@@ -128,7 +114,6 @@ if page == "📊 대시보드":
         col2.metric("진행중", f"{len(filtered_df[filtered_df['상태'] == '진행중'])}건")
         col3.metric("완료", f"{len(filtered_df[filtered_df['상태'] == '완료'])}건")
         
-        # 진척율 계산 시 안전장치 (이미 위에서 변환했으나 이중 체크)
         try:
             avg_progress = filtered_df['진척율'].mean() if not filtered_df.empty else 0
         except:
@@ -320,13 +305,12 @@ elif page == "⚙️ 관리자 페이지":
                 # 필터링 상태: 기존 데이터에 수정사항만 업데이트 (Update)
                 st.session_state.promotions.update(edited_df)
                 st.toast("선택된 데이터가 수정되었습니다!", icon="✅")
+                safe_rerun() # [수정] 즉시 반영을 위해 리런
             else:
                 # 전체 모드: 전체 데이터 교체 (행 추가/삭제 반영)
-                st.session_state.promotions = edited_df
-                try:
-                    st.toast("전체 데이터가 저장되었습니다!", icon="✅")
-                except:
-                    pass
+                st.session_state.promotions = edited_df.copy() # [수정] copy()를 사용하여 안전하게 저장
+                st.toast("전체 데이터가 저장되었습니다!", icon="✅")
+                safe_rerun() # [수정] 즉시 반영을 위해 리런
                 
         st.divider()
 
@@ -342,7 +326,7 @@ elif page == "⚙️ 관리자 페이지":
                 try:
                     new_df = pd.read_csv(uploaded_file)
                     
-                    # [긴급 추가] 업로드 시에도 숫자 변환 적용
+                    # [이동] 업로드 시에만 무결성 검사 실행
                     if '진척율' in new_df.columns:
                         # 문자열 처리: % 제거, 공백 제거
                         new_df['진척율'] = new_df['진척율'].astype(str).str.replace('%', '').str.strip()
