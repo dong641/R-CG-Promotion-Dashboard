@@ -7,7 +7,7 @@ import os
 # 파일 저장소 설정
 # ---------------------------------------------------------
 DATA_FILE = "promotion_data.csv"
-WEEKLY_FILE = "weekly_data.csv"  # 주간 업무 데이터 저장용
+WEEKLY_TASK_FILE = "weekly_tasks.csv"  # 데이터 구조 변경으로 파일명 변경
 
 # ---------------------------------------------------------
 # 함수 정의
@@ -36,15 +36,19 @@ def load_data():
     else:
         return create_default_data()
 
-def load_weekly_data():
-    """주간 업무 데이터 로드"""
-    if os.path.exists(WEEKLY_FILE):
+def load_weekly_tasks():
+    """주간 업무 데이터 로드 (개별 Task 단위)"""
+    if os.path.exists(WEEKLY_TASK_FILE):
         try:
-            return pd.read_csv(WEEKLY_FILE, dtype=str)
+            df = pd.read_csv(WEEKLY_TASK_FILE)
+            if 'Due_Date' in df.columns:
+                df['Due_Date'] = pd.to_datetime(df['Due_Date'], errors='coerce').dt.date
+            return df
         except:
-            return pd.DataFrame(columns=["Week_Start", "Achievements", "Plans", "Issues"])
+            # 파일이 깨졌거나 없으면 헤더 생성
+            return pd.DataFrame(columns=["Week_Start", "Assignee", "Category", "Content", "Due_Date", "Status"])
     else:
-        return pd.DataFrame(columns=["Week_Start", "Achievements", "Plans", "Issues"])
+        return pd.DataFrame(columns=["Week_Start", "Assignee", "Category", "Content", "Due_Date", "Status"])
 
 def create_default_data():
     return pd.DataFrame([
@@ -63,22 +67,35 @@ def save_data(df):
         st.error(f"저장 오류: {e}")
         return False
 
-def save_weekly_report(week_start, achieve, plan, issue):
-    """특정 주차의 업무 보고를 저장"""
-    df = load_weekly_data()
-    new_row = {"Week_Start": str(week_start), "Achievements": achieve, "Plans": plan, "Issues": issue}
-    
-    # 기존 데이터가 있으면 업데이트, 없으면 추가
-    if str(week_start) in df['Week_Start'].values:
-        df.loc[df['Week_Start'] == str(week_start), ["Achievements", "Plans", "Issues"]] = [achieve, plan, issue]
-    else:
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+def add_weekly_task(week_start, assignee, category, content, due_date):
+    """주간 업무 추가"""
+    df = load_weekly_tasks()
+    new_row = {
+        "Week_Start": str(week_start),
+        "Assignee": assignee,
+        "Category": category,
+        "Content": content,
+        "Due_Date": due_date,
+        "Status": "진행중" # 기본값
+    }
+    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     
     try:
-        df.to_csv(WEEKLY_FILE, index=False, encoding='utf-8-sig')
+        df.to_csv(WEEKLY_TASK_FILE, index=False, encoding='utf-8-sig')
         return True
     except Exception as e:
-        st.error(f"주간 보고 저장 오류: {e}")
+        st.error(f"주간 업무 저장 오류: {e}")
+        return False
+
+def delete_weekly_task(index):
+    """주간 업무 삭제"""
+    df = load_weekly_tasks()
+    try:
+        df = df.drop(index)
+        df.to_csv(WEEKLY_TASK_FILE, index=False, encoding='utf-8-sig')
+        return True
+    except Exception as e:
+        st.error(f"삭제 오류: {e}")
         return False
 
 # ---------------------------------------------------------
@@ -116,7 +133,6 @@ if 'is_admin_unlocked' not in st.session_state:
 # 사이드바
 with st.sidebar:
     st.title("메뉴")
-    # [변경] 주간 업무 메뉴 추가
     page = st.radio("이동할 페이지", ["📊 대시보드", "📅 주간 업무", "⚙️ 관리자 페이지"])
     st.divider()
     if st.button("🚪 로그아웃"):
@@ -164,73 +180,103 @@ if page == "📊 대시보드":
     with t3: st.dataframe(filtered_df, column_config=cfg, use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------
-# [신규] 2. 주간 업무 페이지
+# [수정] 2. 주간 업무 페이지 (개인별 입력 및 조회)
 # ---------------------------------------------------------
 elif page == "📅 주간 업무":
-    st.title("📅 주간 업무 보고")
-    st.caption("해당 주차의 진행되는 프로모션을 확인하고 주간 보고를 작성합니다.")
+    st.title("📅 주간 업무 대시보드")
     
-    # 날짜 선택
-    col_date, col_dummy = st.columns([1, 2])
+    # 1. 날짜 및 주차 선택
+    col_date, col_week_info = st.columns([1, 2])
     with col_date:
         pick_date = st.date_input("기준 날짜 선택", datetime.date.today())
     
-    # 해당 날짜가 속한 주의 월요일(Start), 일요일(End) 계산
     start_of_week = pick_date - datetime.timedelta(days=pick_date.weekday())
     end_of_week = start_of_week + datetime.timedelta(days=6)
     
-    st.info(f"📆 **선택된 주간**: {start_of_week} (월) ~ {end_of_week} (일)")
-    
+    with col_week_info:
+        st.info(f"📆 **선택된 주간**: {start_of_week} (월) ~ {end_of_week} (일)")
+
     st.divider()
+
+    # 2. 업무 등록 (개인별)
+    with st.expander("➕ 내 업무 등록하기 (Click)", expanded=True):
+        with st.form("add_weekly_task_form"):
+            st.markdown("**새로운 업무 등록**")
+            
+            # 담당자 선택 (기존 프로모션 담당자 리스트 활용 + 직접 입력)
+            managers = list(st.session_state.promotions['담당자'].unique()) if '담당자' in st.session_state.promotions.columns else []
+            if "기타(직접입력)" not in managers:
+                managers.append("기타(직접입력)")
+                
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                selected_assignee = st.selectbox("담당자 선택", managers)
+                if selected_assignee == "기타(직접입력)":
+                    assignee = st.text_input("담당자명 입력")
+                else:
+                    assignee = selected_assignee
+            
+            with c2:
+                category = st.selectbox("업무 구분", ["금주 실적", "차주 계획", "이슈 사항"])
+            
+            with c3:
+                due_date = st.date_input("Due Date (기한)", datetime.date.today())
+            
+            content = st.text_area("업무 내용", placeholder="구체적인 업무 내용을 입력하세요.")
+            
+            if st.form_submit_button("등록", type="primary", use_container_width=True):
+                if assignee and content:
+                    if add_weekly_task(start_of_week, assignee, category, content, due_date):
+                        st.toast("업무가 등록되었습니다.", icon="✅")
+                        safe_rerun()
+                else:
+                    st.error("담당자와 내용을 입력해주세요.")
+
+    st.divider()
+
+    # 3. 주간 업무 조회 (담당자별 필터링)
+    st.subheader(f"📋 {start_of_week} 주간 업무 현황")
     
-    # 1) 해당 주간에 걸쳐있는 프로모션 자동 필터링
-    st.subheader("🔥 금주 진행 프로모션 (자동 집계)")
-    df = st.session_state.promotions
+    # 데이터 로드 및 해당 주차 필터링
+    all_tasks = load_weekly_tasks()
+    current_week_tasks = all_tasks[all_tasks['Week_Start'] == str(start_of_week)]
     
-    # 날짜 범위 겹치는 데이터 찾기: (시작일 <= 이번주끝) AND (종료일 >= 이번주시작)
-    weekly_active_df = df[
-        (df['시작일'] <= end_of_week) & 
-        (df['종료일'] >= start_of_week)
-    ]
-    
-    if not weekly_active_df.empty:
+    if not current_week_tasks.empty:
+        # 필터링 UI
+        assignee_list = sorted(current_week_tasks['Assignee'].unique())
+        selected_view_assignees = st.multiselect("👤 담당자별 모아보기", assignee_list, placeholder="전체 보기")
+        
+        # 필터 적용
+        if selected_view_assignees:
+            display_tasks = current_week_tasks[current_week_tasks['Assignee'].isin(selected_view_assignees)]
+        else:
+            display_tasks = current_week_tasks
+            
+        # 데이터프레임 표시 (삭제 기능 포함을 위해 data_editor 사용하되 수정은 제한적)
+        # 삭제를 위해서는 key 관리 필요. 간단하게 보여주기 위주로 구현.
+        
         st.dataframe(
-            weekly_active_df,
+            display_tasks[['Category', 'Content', 'Assignee', 'Due_Date']],
             column_config={
-                "진척율": st.column_config.ProgressColumn(format="%d%%"),
+                "Category": st.column_config.TextColumn("구분", width="small"),
+                "Content": st.column_config.TextColumn("업무 내용", width="large"),
+                "Assignee": st.column_config.TextColumn("담당자", width="small"),
+                "Due_Date": st.column_config.DateColumn("기한", format="YYYY-MM-DD", width="small"),
             },
             use_container_width=True,
             hide_index=True
         )
+        
+        # 삭제 기능 (선택적)
+        with st.expander("🗑️ 업무 삭제하기"):
+            task_to_delete = st.selectbox("삭제할 업무 선택", display_tasks.index, format_func=lambda x: f"{display_tasks.loc[x, 'Assignee']} - {display_tasks.loc[x, 'Content'][:20]}...")
+            if st.button("선택한 업무 삭제"):
+                if delete_weekly_task(task_to_delete):
+                    st.success("삭제되었습니다.")
+                    safe_rerun()
+            
     else:
-        st.warning("금주 진행되는 프로모션이 없습니다.")
-        
-    st.divider()
-    
-    # 2) 주간 업무 보고 작성 (저장된 내용 불러오기)
-    st.subheader("📝 주간 보고 작성")
-    
-    weekly_data = load_weekly_data()
-    current_report = weekly_data[weekly_data['Week_Start'] == str(start_of_week)]
-    
-    # 저장된 값이 있으면 가져오고 없으면 빈 값
-    def_achieve = current_report.iloc[0]['Achievements'] if not current_report.empty else ""
-    def_plan = current_report.iloc[0]['Plans'] if not current_report.empty else ""
-    def_issue = current_report.iloc[0]['Issues'] if not current_report.empty else ""
-    
-    with st.form("weekly_report_form"):
-        c1, c2 = st.columns(2)
-        with c1:
-            achievements = st.text_area("✅ 금주 주요 실적", value=def_achieve, height=200, placeholder="- 프로모션 A 기획 완료\n- B 프로모션 예산 확정")
-        with c2:
-            plans = st.text_area("🗓️ 차주 계획", value=def_plan, height=200, placeholder="- C 프로모션 런칭 준비\n- 영업팀 미팅 예정")
-        
-        issues = st.text_area("⚠️ 특이사항 및 이슈", value=def_issue, height=100, placeholder="특이사항 없음")
-        
-        if st.form_submit_button("💾 주간 보고 저장하기", type="primary", use_container_width=True):
-            if save_weekly_report(start_of_week, achievements, plans, issues):
-                st.toast("주간 보고가 저장되었습니다!", icon="✅")
-                safe_rerun()
+        st.info("등록된 주간 업무가 없습니다.")
 
 # ---------------------------------------------------------
 # 3. 관리자 페이지
