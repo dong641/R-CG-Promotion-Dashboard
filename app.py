@@ -127,7 +127,7 @@ if page == "📊 대시보드":
 
     st.divider()
     
-    # 상세 검색 및 필터 (슬라이서) - [요청 반영] 기본값 접힘 (expanded=False)
+    # 상세 검색 및 필터 (슬라이서) - 기본값 접힘 (expanded=False)
     with st.expander("🔍 상세 검색 및 필터 (슬라이서)", expanded=False):
         st.caption("필터를 선택하면 하위 필터의 선택 항목이 자동으로 최적화됩니다.")
         filter_cols = st.columns(3)
@@ -154,11 +154,19 @@ if page == "📊 대시보드":
         col1.metric("조회된 프로모션", f"{len(filtered_df)}건")
         col2.metric("진행중", f"{len(filtered_df[filtered_df['상태'] == '진행중'])}건")
         col3.metric("완료", f"{len(filtered_df[filtered_df['상태'] == '완료'])}건")
+        
+        # [수정] 평균 진척율 계산 시 '완료' 상태 제외
+        # 완료되지 않은 건들만 필터링
+        active_df = filtered_df[filtered_df['상태'] != '완료']
         try:
-            avg_progress = filtered_df['진척율'].mean() if not filtered_df.empty else 0
+            if not active_df.empty:
+                avg_progress = active_df['진척율'].mean()
+            else:
+                avg_progress = 0
         except:
             avg_progress = 0
-        col4.metric("평균 진척율", f"{avg_progress:.1f}%")
+            
+        col4.metric("평균 진척율 (완료제외)", f"{avg_progress:.1f}%")
 
     st.divider()
     
@@ -208,7 +216,7 @@ elif page == "⚙️ 관리자 페이지":
             st.title("⚙️ 데이터 관리")
         with col_save:
             st.markdown("######") # 간격 조정용
-            # [요청 반영] 우측 상단 저장 버튼
+            # 우측 상단 저장 버튼
             if st.button("💾 저장하고 적용하기", type="primary", use_container_width=True):
                 if save_data(st.session_state.draft_df):
                     st.toast("✅ 저장 완료! 대시보드에 적용되었습니다.", icon="🎉")
