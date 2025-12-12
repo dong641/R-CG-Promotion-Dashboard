@@ -1,13 +1,6 @@
-#### 3. 라이브러리 설치 및 실행
-1.  키보드의 `Windows 키` + `R`을 누르고 `cmd`라고 입력 후 엔터 (검은색 터미널 창이 뜹니다).
-2.  아래 명령어를 한 줄씩 입력하세요. (복사해서 우클릭하면 붙여넣기 됩니다).
+Plaintext
 
-```bash
-# 1. 라이브러리 설치 (한 번만 하면 됨)
-pip install streamlit pandas plotly
-
-# 2. 방금 만든 폴더로 이동 (경로는 본인 폴더 위치에 맞게 수정)
-cd Desktop\dashboard
-
-# 3. 앱 실행
-streamlit run app.py
+streamlit
+pandas
+plotly
+openpyxl
