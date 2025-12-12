@@ -1,8 +1,21 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-from datetime import datetime, date
 import os
+import sys
+import subprocess
+
+# --- [긴급 패치] 라이브러리 강제 설치 ---
+# Streamlit Cloud에서 requirements.txt가 무시될 때를 대비해 코드에서 직접 설치
+try:
+    import plotly.express as px
+except ImportError:
+    st.warning("⚠️ Plotly 라이브러리를 설치 중입니다... 잠시만 기다려주세요.")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "plotly"])
+    import plotly.express as px
+    st.success("설치 완료! 앱을 다시 실행합니다.")
+    st.rerun()
+
+from datetime import datetime, date
 
 # --- 1. 페이지 설정 (가장 먼저 실행되어야 함) ---
 st.set_page_config(
@@ -20,7 +33,6 @@ def init_data():
     if not os.path.exists(DATA_FILE):
         data = [
             {"No": 1, "프로모션명": "2025 설날 선물세트 기획", "카테고리": "온트레이드", "담당자": "김철수", "시작일": "2025-01-01", "종료일": "2025-02-15", "진척률": 80, "상태": "진행중"},
-            # [수정] 아래 줄들에 "프로모션명": 키가 빠져있던 오류 수정
             {"No": 2, "프로모션명": "신제품 팝업스토어 운영", "카테고리": "오프라인", "담당자": "이영희", "시작일": "2025-02-01", "종료일": "2025-02-28", "진척률": 30, "상태": "지연"},
             {"No": 3, "프로모션명": "인플루언서 바이럴 캠페인", "카테고리": "디지털", "담당자": "박지민", "시작일": "2025-01-15", "종료일": "2025-03-31", "진척률": 50, "상태": "진행중"},
             {"No": 4, "프로모션명": "VIP 초청 시음회", "카테고리": "행사", "담당자": "최민수", "시작일": "2025-03-01", "종료일": "2025-03-05", "진척률": 10, "상태": "예정"},
@@ -37,13 +49,9 @@ def load_data():
     df = pd.read_csv(DATA_FILE, encoding='utf-8-sig')
     
     # [안전장치] 진척률 데이터 안전 처리 로직
-    # CSV에 '80%' 같은 문자열이나 빈 값이 섞여있을 경우 숫자로 강제 변환하여 TypeError 방지
     if '진척률' in df.columns:
-        # 1. 데이터 타입이 문자열(object)인 경우에만 % 기호 제거 등의 정제 작업 수행
         if df['진척률'].dtype == 'object':
             df['진척률'] = df['진척률'].astype(str).str.replace('%', '').str.strip()
-            
-        # 2. 숫자로 변환 (변환 불가능한 값은 NaN -> 0으로 처리) 후 정수형(int)으로 변경
         df['진척률'] = pd.to_numeric(df['진척률'], errors='coerce').fillna(0).astype(int)
         
     return df
@@ -65,7 +73,6 @@ with st.sidebar.form("input_form", clear_on_submit=True):
     manager = col2.text_input("담당자")
     
     col3, col4 = st.columns(2)
-    # 기본값을 2025년 1월 1일로 설정
     start_date = col3.date_input("시작일", date(2025, 1, 1))
     end_date = col4.date_input("종료일", date(2025, 1, 31))
     
@@ -94,7 +101,7 @@ if submitted and name:
     df = pd.concat([df, new_row], ignore_index=True)
     save_data(df)
     st.success(f"✅ '{name}' 프로젝트가 등록되었습니다!")
-    st.rerun() # 데이터 갱신을 위해 페이지 새로고침
+    st.rerun()
 
 # --- 5. 메인 대시보드 화면 구성 ---
 st.title("🚀 2025 프로모션 현황 대시보드")
@@ -105,11 +112,9 @@ st.divider()
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("총 프로젝트", f"{len(df)}건")
 
-# 평균 진척률 계산 (데이터가 없을 때 오류 방지)
 avg_p = int(df['진척률'].mean()) if not df.empty else 0
 k2.metric("평균 진척률", f"{avg_p}%")
 
-# 상태별 건수 계산
 count_active = len(df[df['상태'] == '진행중'])
 count_delayed = len(df[df['상태'] == '지연'])
 
@@ -120,7 +125,6 @@ k4.metric("지연됨", f"{count_delayed}건", delta="-Warning", delta_color="inv
 st.subheader("📅 프로젝트 일정 타임라인")
 
 if not df.empty:
-    # 차트 생성을 위해 날짜 형식 변환
     chart_df = df.copy()
     chart_df['시작일'] = pd.to_datetime(chart_df['시작일'])
     chart_df['종료일'] = pd.to_datetime(chart_df['종료일'])
@@ -132,16 +136,14 @@ if not df.empty:
         y="프로모션명", 
         color="상태",
         title="",
-        # 상태별 색상 지정
         color_discrete_map={
-            "완료": "#2ECC71",  # 녹색
-            "진행중": "#3498DB", # 파란색
-            "지연": "#E74C3C",   # 빨간색
-            "예정": "#95A5A6"    # 회색
+            "완료": "#2ECC71",
+            "진행중": "#3498DB",
+            "지연": "#E74C3C",
+            "예정": "#95A5A6"
         },
         hover_data=["담당자", "진척률"]
     )
-    # Y축 순서 반전 (위에서부터 1번이 나오도록) 및 높이 자동 조절
     fig.update_yaxes(autorange="reversed")
     fig.update_layout(height=400)
     
@@ -149,11 +151,11 @@ if not df.empty:
 
 # [섹션 3] 데이터 편집 테이블 (Data Editor)
 st.subheader("📋 상세 현황 (수정 가능)")
-st.caption("💡 표의 내용을 더블 클릭하여 수정하면 자동 저장됩니다. (행 삭제는 왼쪽 체크박스 선택 후 Del 키)")
+st.caption("💡 표의 내용을 더블 클릭하여 수정하면 자동 저장됩니다.")
 
 edited_df = st.data_editor(
     df,
-    num_rows="dynamic", # 행 추가/삭제 허용
+    num_rows="dynamic",
     use_container_width=True,
     column_config={
         "진척률": st.column_config.ProgressColumn(
@@ -168,9 +170,7 @@ edited_df = st.data_editor(
     hide_index=True,
 )
 
-# 데이터 변경 감지 시 저장
 if not df.equals(edited_df):
-    # 날짜 데이터 포맷을 문자열/Date 객체로 정리하여 저장
     edited_df['시작일'] = pd.to_datetime(edited_df['시작일']).dt.date
     edited_df['종료일'] = pd.to_datetime(edited_df['종료일']).dt.date
     save_data(edited_df)
