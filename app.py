@@ -7,7 +7,7 @@ import os
 # 파일 저장소 설정
 # ---------------------------------------------------------
 DATA_FILE = "promotion_data.csv"
-WEEKLY_REPORT_FILE = "weekly_reports_v2.csv" # 새로운 포맷의 파일 사용
+WEEKLY_REPORT_FILE = "weekly_reports_v2.csv"
 
 # ---------------------------------------------------------
 # 유틸리티 함수
@@ -86,17 +86,12 @@ def save_weekly_report_entry(new_data_df):
         else:
             existing_df = create_empty_report_df()
         
-        # 신규 데이터 저장 (기존 파일에 append 하는 방식이 아니라, 해당 주차/담당자의 데이터를 교체하는 로직이 더 복잡하므로 여기선 Append 후 중복관리는 UI에서 처리하거나 단순 Append)
-        # 벤치마킹 Case: 보통 DB를 쓰지만 CSV 환경이므로, 
-        # "해당 주차 + 해당 담당자"의 기존 데이터를 삭제하고 새로 넣는 것이 깔끔함.
-        
         week_start = new_data_df['Week_Start'].iloc[0]
         assignee = new_data_df['Assignee'].iloc[0]
         
-        # 기존 데이터에서 해당 주차+담당자 데이터 제거
+        # 기존 데이터에서 해당 주차+담당자 데이터 제거 후 재등록
         existing_df = existing_df[~((existing_df['Week_Start'] == week_start) & (existing_df['Assignee'] == assignee))]
         
-        # 새 데이터 병합
         final_df = pd.concat([existing_df, new_data_df], ignore_index=True)
         final_df.to_csv(WEEKLY_REPORT_FILE, index=False, encoding='utf-8-sig')
         return True
@@ -180,76 +175,99 @@ if page == "📊 대시보드":
     st.dataframe(filtered_df, column_config=cfg, use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------
-# PAGE 2: 주간 업무 (WBR) - 벤치마킹 버전
+# PAGE 2: 주간 업무 (WBR) - 벤치마킹 & 가시성 개선 버전
 # ---------------------------------------------------------
 elif page == "📅 주간 업무 (WBR)":
     st.title("📅 Weekly Business Review")
-    st.caption("PPP(Progress, Plans, Problems) 프레임워크 기반의 주간 업무 보고 시스템입니다.")
-
-    # 1. 주차 선택 (공통 컨트롤)
-    col_date, col_info = st.columns([1, 3])
+    
+    # 1. 주차 선택 및 요약
+    col_date, col_view_opt = st.columns([1, 2])
     with col_date:
-        pick_date = st.date_input("기준 날짜 선택", datetime.date.today())
+        pick_date = st.date_input("기준 날짜", datetime.date.today())
     
     start_week, end_week = get_week_range(pick_date)
-    week_str = str(start_week) # 키값
+    week_str = str(start_week)
     
-    with col_info:
-        st.info(f"**[{start_week} ~ {end_week}]** 주차의 업무를 관리합니다.")
+    with col_view_opt:
+        st.info(f"📆 **{start_week} ~ {end_week}** 주간 업무 보고")
+
+    st.divider()
 
     # 2. 탭 구성 (조회 vs 작성)
-    tab_view, tab_write = st.tabs(["📋 전체 팀원 보고서 조회", "✍️ 내 보고서 작성/수정"])
+    tab_view, tab_write = st.tabs(["📋 전체 팀원 보고서 조회 (Dashboard)", "✍️ 내 보고서 작성/수정"])
 
-    # --- TAB 1: 조회 (View) ---
+    # --- TAB 1: 조회 (가시성 개선: 카드형 그리드 레이아웃) ---
     with tab_view:
         report_df = load_weekly_reports()
         current_reports = report_df[report_df['Week_Start'] == week_str]
         
         if current_reports.empty:
-            st.warning("해당 주차에 작성된 보고서가 없습니다.")
+            st.warning("해당 주차에 제출된 보고서가 없습니다.")
         else:
-            # 담당자별 그룹핑
             assignees = sorted(current_reports['Assignee'].unique())
             
-            st.markdown(f"총 **{len(assignees)}명**이 보고서를 제출했습니다.")
-            st.divider()
+            # 뷰 옵션 선택 (카드형 vs 테이블형)
+            view_mode = st.radio("보기 방식", ["카드 뷰 (Card View)", "요약 테이블 (Summary)"], horizontal=True, label_visibility="collapsed")
             
-            for person in assignees:
-                p_df = current_reports[current_reports['Assignee'] == person]
+            if view_mode == "요약 테이블 (Summary)":
+                # 테이블 뷰: 전체 데이터를 한눈에
+                st.dataframe(
+                    current_reports,
+                    column_config={
+                        "Assignee": st.column_config.TextColumn("담당자", width="small"),
+                        "Type": st.column_config.TextColumn("구분", width="small"),
+                        "Project": st.column_config.TextColumn("프로모션", width="medium"),
+                        "Content": st.column_config.TextColumn("업무 내용", width="large"),
+                        "Status": st.column_config.TextColumn("상태", width="small"),
+                        "Week_Start": None # 숨김
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
                 
-                with st.expander(f"👤 **{person}**의 주간 보고", expanded=True):
-                    # 3단 컬럼: 실적 / 계획 / 이슈
-                    c_prog, c_plan, c_prob = st.columns(3)
+            else:
+                # 카드 뷰: 담당자별 카드 그리드 배치 (2열 배치)
+                cols = st.columns(2)
+                
+                for idx, person in enumerate(assignees):
+                    p_df = current_reports[current_reports['Assignee'] == person]
                     
-                    # 스타일링 함수
-                    def show_cards(container, title, type_val, icon):
-                        sub_df = p_df[p_df['Type'] == type_val]
-                        with container:
-                            st.markdown(f"##### {icon} {title}")
-                            if sub_df.empty:
-                                st.caption("내용 없음")
-                            else:
-                                for _, row in sub_df.iterrows():
-                                    # 상태에 따른 색상
-                                    status_color = "🟢" if row['Status'] == "정상" else "🟡" if row['Status'] == "지연" else "🔴"
-                                    # 프로젝트 태그
-                                    proj_tag = f"**[{row['Project']}]**" if row['Project'] != "-" else ""
-                                    
-                                    st.markdown(f"""
-                                    <div style="background-color:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:10px;">
-                                        <div style="font-size:0.8em; color:#666;">{status_color} {row['Status']} {proj_tag}</div>
-                                        <div>{row['Content']}</div>
-                                    </div>
-                                    """, unsafe_allow_html=True)
+                    # 2열 중 하나에 배치
+                    with cols[idx % 2]:
+                        with st.container(border=True):
+                            st.markdown(f"#### 👤 {person}")
+                            
+                            # 업무 렌더링 함수
+                            def render_section_content(data_df):
+                                if data_df.empty:
+                                    st.caption("내용 없음")
+                                else:
+                                    for _, row in data_df.iterrows():
+                                        s_icon = "🟢" if row['Status']=="정상" else "🟡" if row['Status']=="지연" else "🔴"
+                                        p_tag = f"**[{row['Project']}]**" if row['Project'] != "-" else ""
+                                        st.markdown(f"{s_icon} {p_tag} {row['Content']}")
 
-                    show_cards(c_prog, "금주 실적 (Progress)", "Progress", "✅")
-                    show_cards(c_plan, "차주 계획 (Plans)", "Plans", "🗓️")
-                    show_cards(c_prob, "이슈 사항 (Problems)", "Problems", "⚠️")
+                            # 1. Progress
+                            st.markdown("**✅ 금주 실적**")
+                            render_section_content(p_df[p_df['Type'] == 'Progress'])
+                            
+                            st.divider()
+                            
+                            # 2. Plans
+                            st.markdown("**🗓️ 차주 계획**")
+                            render_section_content(p_df[p_df['Type'] == 'Plans'])
+                            
+                            st.divider()
+                            
+                            # 3. Problems (있을 때만 강조)
+                            prob_df = p_df[p_df['Type'] == 'Problems']
+                            if not prob_df.empty:
+                                st.markdown("**⚠️ 이슈 사항**")
+                                render_section_content(prob_df)
 
     # --- TAB 2: 작성 (Write) ---
     with tab_write:
         st.markdown("##### 📝 나의 주간 업무 보고서 작성")
-        st.caption("좌측은 업무 유형, 중간은 관련된 프로모션(없으면 '-'), 우측은 내용을 입력하세요.")
         
         # 1. 작성자 선택
         managers = list(st.session_state.promotions['담당자'].unique()) if '담당자' in st.session_state.promotions.columns else []
@@ -262,41 +280,40 @@ elif page == "📅 주간 업무 (WBR)":
                 me = st.text_input("이름 직접 입력")
 
         if me:
-            # 2. 기존 데이터 불러오기 (Draft)
-            # 파일에서 내 데이터를 찾아오거나, 없으면 템플릿 생성
+            # 2. 기존 데이터 불러오기
             my_data = load_weekly_reports()
             my_week_data = my_data[(my_data['Week_Start'] == week_str) & (my_data['Assignee'] == me)]
             
             if my_week_data.empty:
-                # 기본 템플릿 데이터 (처음 작성 시 가이드라인)
+                # 템플릿: 실적 2개, 계획 2개 기본 생성
                 template_data = [
                     {"Week_Start": week_str, "Assignee": me, "Type": "Progress", "Project": "-", "Content": "", "Status": "정상"},
+                    {"Week_Start": week_str, "Assignee": me, "Type": "Progress", "Project": "-", "Content": "", "Status": "정상"},
+                    {"Week_Start": week_str, "Assignee": me, "Type": "Plans", "Project": "-", "Content": "", "Status": "정상"},
                     {"Week_Start": week_str, "Assignee": me, "Type": "Plans", "Project": "-", "Content": "", "Status": "정상"},
                 ]
                 input_df = pd.DataFrame(template_data)
             else:
                 input_df = my_week_data.reset_index(drop=True)
 
-            # 3. 데이터 에디터 (입력 폼)
-            # 프로젝트 목록 (드롭다운용)
+            # 3. 데이터 에디터
             proj_list = ["-"] + list(st.session_state.promotions['프로모션명'].unique())
             
+            st.info("💡 팁: 행을 추가하려면 표의 맨 아래를 클릭하세요.")
             edited_df = st.data_editor(
                 input_df,
                 column_config={
-                    "Week_Start": None, # 숨김
-                    "Assignee": None,   # 숨김
+                    "Week_Start": None,
+                    "Assignee": None,
                     "Type": st.column_config.SelectboxColumn(
                         "구분", 
                         options=["Progress", "Plans", "Problems"],
-                        help="Progress: 실적, Plans: 계획, Problems: 이슈",
                         required=True,
                         width="medium"
                     ),
                     "Project": st.column_config.SelectboxColumn(
                         "관련 프로모션",
                         options=proj_list,
-                        help="관련된 프로모션이 있다면 선택하세요",
                         required=True,
                         width="medium"
                     ),
@@ -321,25 +338,24 @@ elif page == "📅 주간 업무 (WBR)":
             col_save_btn, _ = st.columns([1, 4])
             with col_save_btn:
                 if st.button("💾 보고서 제출/수정하기", type="primary", use_container_width=True):
-                    # 유효성 검사: 내용이 있는 것만 저장
+                    # 유효성 검사
                     to_save = edited_df[edited_df['Content'].str.strip() != ""].copy()
                     
-                    # 필수 메타데이터 강제 주입 (사용자가 에디터에서 행을 추가했을 때 비어있을 수 있음)
-                    to_save['Week_Start'] = week_str
-                    to_save['Assignee'] = me
-                    
-                    # 빈 값 처리
-                    if 'Project' in to_save.columns:
-                        to_save['Project'] = to_save['Project'].fillna("-")
-                    if 'Status' in to_save.columns:
-                        to_save['Status'] = to_save['Status'].fillna("정상")
-                    
                     if not to_save.empty:
+                        # 필수 메타데이터 주입
+                        to_save['Week_Start'] = week_str
+                        to_save['Assignee'] = me
+                        
+                        # 결측치 처리
+                        if 'Project' in to_save.columns: to_save['Project'] = to_save['Project'].fillna("-")
+                        if 'Status' in to_save.columns: to_save['Status'] = to_save['Status'].fillna("정상")
+                        if 'Type' in to_save.columns: to_save['Type'] = to_save['Type'].fillna("Progress")
+                        
                         if save_weekly_report_entry(to_save):
                             st.toast("보고서가 성공적으로 제출되었습니다!", icon="🚀")
                             safe_rerun()
                     else:
-                        st.warning("저장할 내용이 없습니다. 내용을 입력해주세요.")
+                        st.warning("내용을 입력해주세요.")
         else:
             st.info("작성자를 먼저 선택해주세요.")
 
@@ -355,13 +371,12 @@ elif page == "⚙️ 관리자 페이지":
             if st.form_submit_button("로그인"):
                 if pw == "diageorcg":
                     st.session_state.is_admin_unlocked = True
-                    # 관리자 진입 시 라이브 데이터를 draft로 복사
                     st.session_state.draft_df = st.session_state.promotions.copy()
                     safe_rerun()
                 else:
                     st.error("암호 오류")
     else:
-        # 관리자 기능 (저장 및 편집)
+        # 관리자 기능
         c1, c2 = st.columns([2,1])
         c1.title("⚙️ 데이터 관리")
         if c2.button("💾 변경사항 저장 및 적용", type="primary"):
@@ -370,11 +385,9 @@ elif page == "⚙️ 관리자 페이지":
         
         st.divider()
         
-        # 탭으로 기능 분리
         at1, at2, at3 = st.tabs(["✏️ 데이터 편집", "🛠️ 컬럼/행 관리", "📂 CSV 관리"])
         
         with at1:
-            # 데이터 에디터
             edited = st.data_editor(st.session_state.draft_df, num_rows="dynamic", use_container_width=True, key="admin_edit")
             if not edited.equals(st.session_state.draft_df):
                 st.session_state.draft_df = edited
@@ -388,7 +401,6 @@ elif page == "⚙️ 관리자 페이지":
                         st.session_state.draft_df[new_col] = "-"
                         safe_rerun()
             with c_del:
-                # 필수 컬럼 보호
                 protected = ['프로모션명', '상태', '진척율']
                 removable = [c for c in st.session_state.draft_df.columns if c not in protected]
                 target = st.selectbox("삭제할 컬럼", removable)
@@ -401,7 +413,6 @@ elif page == "⚙️ 관리자 페이지":
             if up and st.button("데이터 교체"):
                 try:
                     ndf = pd.read_csv(up)
-                    # 전처리 로직 (날짜, 진척율 변환)
                     for col in ['시작일', '종료일']:
                         if col in ndf.columns: ndf[col] = pd.to_datetime(ndf[col]).dt.date
                     if '진척율' in ndf.columns:
