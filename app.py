@@ -8,8 +8,17 @@ import os
 # ---------------------------------------------------------
 DATA_FILE = "promotion_data.csv"
 
-# 데이터 로드 함수 (파일이 있으면 읽고, 없으면 기본값 생성)
+# ---------------------------------------------------------
+# 함수 정의
+# ---------------------------------------------------------
+def safe_rerun():
+    if hasattr(st, "rerun"):
+        st.rerun()
+    else:
+        st.experimental_rerun()
+
 def load_data():
+    """CSV 파일에서 데이터를 로드하거나 기본 데이터를 생성합니다."""
     if os.path.exists(DATA_FILE):
         try:
             df = pd.read_csv(DATA_FILE)
@@ -17,10 +26,12 @@ def load_data():
             for col in ['시작일', '종료일']:
                 if col in df.columns:
                     df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
-            # 진척율 숫자 변환
+            
+            # 진척율 숫자 변환 (안전장치)
             if '진척율' in df.columns:
                 df['진척율'] = df['진척율'].astype(str).str.replace('%', '').str.strip()
                 df['진척율'] = pd.to_numeric(df['진척율'], errors='coerce').fillna(0).astype(int)
+            
             return df
         except Exception as e:
             st.error(f"데이터 파일 로드 중 오류 발생: {e}")
@@ -28,8 +39,8 @@ def load_data():
     else:
         return create_default_data()
 
-# 기본 데이터 생성 함수
 def create_default_data():
+    """기본 예시 데이터를 생성합니다."""
     return pd.DataFrame([
         {"프로모션명": "2024 봄 정기 세일", "채널": "Off Trade", "담당자": "김철수", "상태": "진행중", "진척율": 75, "시작일": datetime.date(2024, 3, 1), "종료일": datetime.date(2024, 3, 15)},
         {"프로모션명": "신규 회원 가입 이벤트", "채널": "On Trade", "담당자": "이영희", "상태": "기획단계", "진척율": 20, "시작일": datetime.date(2024, 4, 1), "종료일": datetime.date(2024, 4, 30)},
@@ -37,21 +48,15 @@ def create_default_data():
         {"프로모션명": "설날 효도 선물전", "채널": "On Trade", "담당자": "정수진", "상태": "완료", "진척율": 100, "시작일": datetime.date(2024, 1, 15), "종료일": datetime.date(2024, 2, 9)},
     ])
 
-# 데이터 저장 함수 (파일 저장 + 세션 업데이트)
-def save_data_to_file(df):
+def save_data(df):
+    """데이터프레임을 CSV 파일로 저장하고 세션에 반영합니다."""
     try:
         df.to_csv(DATA_FILE, index=False, encoding='utf-8-sig')
-        st.session_state.promotions = df  # 대시보드에 즉시 반영
-        st.success("✅ 데이터가 성공적으로 저장되고 대시보드에 반영되었습니다!")
+        st.session_state.promotions = df.copy() # 라이브 데이터 업데이트
+        return True
     except Exception as e:
-        st.error(f"저장 중 오류가 발생했습니다: {e}")
-
-# 호환성 함수
-def safe_rerun():
-    if hasattr(st, "rerun"):
-        st.rerun()
-    else:
-        st.experimental_rerun()
+        st.error(f"저장 중 오류 발생: {e}")
+        return False
 
 # ---------------------------------------------------------
 # 페이지 설정 (가장 먼저 실행)
@@ -72,6 +77,7 @@ if not st.session_state.is_global_unlocked:
     st.title("🔒 프로모션 시스템 접근")
     st.markdown("### 접속을 위해 보안 코드를 입력하세요.")
     global_password = st.text_input("접속 암호", type="password", key="global_pw")
+    
     if st.button("시스템 접속"):
         if global_password == "dk2026":
             st.session_state.is_global_unlocked = True
@@ -85,16 +91,17 @@ if not st.session_state.is_global_unlocked:
 # [메인 앱]
 # =========================================================
 
-# 초기 데이터 로드 (파일 또는 기본값)
+# 1. 라이브 데이터 로드 (파일 기준)
 if 'promotions' not in st.session_state:
     st.session_state.promotions = load_data()
+
+# 2. 관리자용 임시 데이터(Draft) 초기화
+if 'draft_df' not in st.session_state:
+    st.session_state.draft_df = st.session_state.promotions.copy()
 
 # 관리자 로그인 상태 초기화
 if 'is_admin_unlocked' not in st.session_state:
     st.session_state.is_admin_unlocked = False
-
-# 대시보드에 보여줄 데이터 (Live Data)
-df = st.session_state.promotions
 
 # 사이드바 설정
 with st.sidebar:
@@ -113,13 +120,16 @@ with st.sidebar:
 if page == "📊 대시보드":
     st.title("📊 프로모션 현황 대시보드")
     
+    # 데이터 소스: 라이브 데이터 (promotions)
+    df = st.session_state.promotions
+    
     metrics_container = st.container()
 
     st.divider()
     
-    # 상세 검색 및 필터
-    with st.expander("🔍 상세 검색 및 필터 (슬라이서)", expanded=True):
-        st.caption("앞쪽(왼쪽) 필터를 선택하면 뒤쪽(오른쪽) 필터의 선택 항목이 자동으로 줄어듭니다.")
+    # 상세 검색 및 필터 (슬라이서) - [요청 반영] 기본값 접힘 (expanded=False)
+    with st.expander("🔍 상세 검색 및 필터 (슬라이서)", expanded=False):
+        st.caption("필터를 선택하면 하위 필터의 선택 항목이 자동으로 최적화됩니다.")
         filter_cols = st.columns(3)
         filtered_df = df.copy() 
         exclude_cols = ['진척율', '시작일', '종료일']
@@ -177,93 +187,167 @@ if page == "📊 대시보드":
 # 페이지 2: 관리자 페이지 (비밀번호: diageorcg)
 # ---------------------------------------------------------
 elif page == "⚙️ 관리자 페이지":
-    st.title("⚙️ 프로모션 데이터 관리")
-    
+    # 2.1 관리자 인증
     if not st.session_state.is_admin_unlocked:
+        st.title("⚙️ 관리자 인증")
         st.warning("⚠️ 관리자 권한이 필요합니다.")
         with st.form("admin_login_form"):
             admin_pw = st.text_input("관리자 암호", type="password")
             if st.form_submit_button("관리자 로그인"):
                 if admin_pw == "diageorcg":
                     st.session_state.is_admin_unlocked = True
+                    # 관리자 모드 진입 시 draft를 live 데이터와 동기화
+                    st.session_state.draft_df = st.session_state.promotions.copy()
                     safe_rerun()
                 else:
                     st.error("암호 오류")
     else:
-        # [우측 상단] 저장 버튼 배치 (헤더 옆에)
-        col_header, col_save = st.columns([3, 1])
-        with col_header:
-            st.info("💡 데이터를 수정한 후 반드시 우측의 **'저장하기'** 버튼을 눌러야 반영됩니다.")
+        # 2.2 관리자 메인 화면
+        col_title, col_save = st.columns([2, 1])
+        with col_title:
+            st.title("⚙️ 데이터 관리")
         with col_save:
-            save_button_clicked = st.button("💾 변경사항 저장 및 반영", type="primary", use_container_width=True)
-
-        # -----------------------------------------------------
-        # [데이터 스테이징 로직]
-        # 편집 중인 데이터(Draft)를 관리합니다.
-        # -----------------------------------------------------
+            st.markdown("######") # 간격 조정용
+            # [요청 반영] 우측 상단 저장 버튼
+            if st.button("💾 저장하고 적용하기", type="primary", use_container_width=True):
+                if save_data(st.session_state.draft_df):
+                    st.toast("✅ 저장 완료! 대시보드에 적용되었습니다.", icon="🎉")
+                    # Draft와 Live 싱크 맞춤
+                    st.session_state.promotions = st.session_state.draft_df.copy()
         
-        # 1. 초기는 현재 라이브 데이터로 시작
-        if 'draft_df' not in st.session_state:
-            st.session_state.draft_df = df.copy()
+        st.info("💡 아래에서 데이터를 수정한 후, 반드시 우측 상단의 **'저장하고 적용하기'** 버튼을 눌러야 반영됩니다.")
+        
+        # -----------------------------------------------------
+        # 기능 1: 컬럼(열) 관리
+        # -----------------------------------------------------
+        with st.expander("🛠️ 컬럼(열) 추가 및 삭제", expanded=False):
+            col_add, col_del = st.columns(2)
+            with col_add:
+                new_col_name = st.text_input("추가할 컬럼명")
+                if st.button("컬럼 추가", use_container_width=True):
+                    if new_col_name and new_col_name not in st.session_state.draft_df.columns:
+                        st.session_state.draft_df[new_col_name] = "-"
+                        st.success(f"'{new_col_name}' 추가됨 (임시)")
+                        safe_rerun()
+                    elif new_col_name in st.session_state.draft_df.columns:
+                        st.error("이미 존재하는 컬럼입니다.")
+            
+            with col_del:
+                # 필수 컬럼 보호
+                protected_cols = ['프로모션명', '상태', '진척율']
+                deletable = [c for c in st.session_state.draft_df.columns if c not in protected_cols]
+                del_col = st.selectbox("삭제할 컬럼 선택", deletable)
+                if st.button("컬럼 삭제", type="primary", use_container_width=True):
+                    if del_col:
+                        st.session_state.draft_df = st.session_state.draft_df.drop(columns=[del_col])
+                        st.success(f"'{del_col}' 삭제됨 (임시)")
+                        safe_rerun()
 
-        st.divider()
+        # -----------------------------------------------------
+        # 기능 2: 행(Row) 추가
+        # -----------------------------------------------------
+        with st.expander("➕ 새 데이터(행) 추가", expanded=False):
+            with st.form("add_row_form"):
+                st.markdown("**기본 정보**")
+                c1, c2 = st.columns(2)
+                in_name = c1.text_input("프로모션명")
+                in_status = c2.selectbox("상태", ["기획단계", "대기", "진행중", "완료", "보류"])
+                in_progress = st.slider("진척율 (%)", 0, 100, 0)
+                
+                c3, c4 = st.columns(2)
+                in_start = c3.date_input("시작일", datetime.date.today())
+                in_end = c4.date_input("종료일", datetime.date.today() + datetime.timedelta(days=7))
+                
+                # 동적 컬럼 입력
+                dynamic_data = {}
+                reserved = ['프로모션명', '상태', '진척율', '시작일', '종료일']
+                others = [c for c in st.session_state.draft_df.columns if c not in reserved]
+                
+                if others:
+                    st.markdown("**추가 정보**")
+                    dc_cols = st.columns(3)
+                    for idx, col in enumerate(others):
+                        if col == '채널':
+                            dynamic_data[col] = dc_cols[idx % 3].selectbox(col, ["On Trade", "Off Trade", "기타"])
+                        else:
+                            dynamic_data[col] = dc_cols[idx % 3].text_input(col)
 
-        # [CSV 업로드 섹션] - 업로드 시 Draft 데이터를 덮어씀
-        with st.expander("📂 CSV 파일로 데이터 덮어쓰기 (업로드)", expanded=False):
+                if st.form_submit_button("추가하기"):
+                    if in_name:
+                        new_row = {
+                            "프로모션명": in_name,
+                            "상태": in_status,
+                            "진척율": in_progress,
+                            "시작일": in_start,
+                            "종료일": in_end
+                        }
+                        new_row.update(dynamic_data)
+                        
+                        # 기존 DataFrame에 병합
+                        st.session_state.draft_df = pd.concat(
+                            [st.session_state.draft_df, pd.DataFrame([new_row])], 
+                            ignore_index=True
+                        )
+                        st.success("데이터 추가됨 (임시)")
+                        safe_rerun()
+                    else:
+                        st.error("프로모션명은 필수입니다.")
+
+        # -----------------------------------------------------
+        # 기능 3: CSV 업로드 (덮어쓰기)
+        # -----------------------------------------------------
+        with st.expander("📂 CSV 파일로 덮어쓰기", expanded=False):
             uploaded_file = st.file_uploader("CSV 파일 업로드", type=["csv"], label_visibility="collapsed")
             if uploaded_file:
-                try:
-                    new_df = pd.read_csv(uploaded_file)
-                    # 전처리
-                    if '진척율' in new_df.columns:
-                        new_df['진척율'] = new_df['진척율'].astype(str).str.replace('%', '').str.strip()
-                        new_df['진척율'] = pd.to_numeric(new_df['진척율'], errors='coerce').fillna(0).astype(int)
-                    for col in ['시작일', '종료일']:
-                        if col in new_df.columns:
-                            new_df[col] = pd.to_datetime(new_df[col], errors='coerce').dt.date
-                    
-                    # Draft 상태 업데이트
-                    st.session_state.draft_df = new_df
-                    st.success("CSV 파일이 로드되었습니다. 아래 표에서 확인 후 '저장하기'를 누르세요.")
-                except Exception as e:
-                    st.error(f"CSV 오류: {e}")
+                if st.button("🔄 이 파일로 데이터 교체 (임시)", use_container_width=True):
+                    try:
+                        new_df = pd.read_csv(uploaded_file)
+                        # 전처리
+                        if '진척율' in new_df.columns:
+                            new_df['진척율'] = new_df['진척율'].astype(str).str.replace('%', '').str.strip()
+                            new_df['진척율'] = pd.to_numeric(new_df['진척율'], errors='coerce').fillna(0).astype(int)
+                        for col in ['시작일', '종료일']:
+                            if col in new_df.columns:
+                                new_df[col] = pd.to_datetime(new_df[col], errors='coerce').dt.date
+                        
+                        st.session_state.draft_df = new_df
+                        st.success("CSV 데이터 로드됨 (임시). 상단 저장 버튼을 눌러 확정하세요.")
+                        safe_rerun()
+                    except Exception as e:
+                        st.error(f"오류: {e}")
 
         st.divider()
 
-        # [데이터 에디터] - Draft 데이터를 편집
-        st.subheader("✏️ 데이터 편집 (미리보기)")
+        # -----------------------------------------------------
+        # 기능 4: 데이터 에디터 (수정)
+        # -----------------------------------------------------
+        st.subheader("✏️ 데이터 편집 (Draft)")
         
+        # 컬럼 설정
         column_configuration = {
             "진척율": st.column_config.NumberColumn("진척율", min_value=0, max_value=100, format="%d%%"),
             "상태": st.column_config.SelectboxColumn("상태", options=["기획단계", "대기", "진행중", "완료", "보류"], required=True),
             "시작일": st.column_config.DateColumn("시작일", format="YYYY-MM-DD"),
             "종료일": st.column_config.DateColumn("종료일", format="YYYY-MM-DD"),
         }
-        if "채널" in df.columns:
+        if "채널" in st.session_state.draft_df.columns:
             column_configuration["채널"] = st.column_config.SelectboxColumn("채널", options=["On Trade", "Off Trade", "기타"])
 
-        # 사용자가 수정한 내용이 edited_df에 담김
         edited_df = st.data_editor(
-            st.session_state.draft_df,  # 편집 대상은 Draft 데이터
+            st.session_state.draft_df,
             column_config=column_configuration,
             hide_index=True,
             use_container_width=True,
             num_rows="dynamic",
-            key="admin_editor"
+            key="draft_editor"
         )
 
-        # 에디터의 수정사항을 실시간으로 Draft 세션에 동기화
+        # 에디터 변경사항 실시간 반영 (임시 상태)
         if not edited_df.equals(st.session_state.draft_df):
             st.session_state.draft_df = edited_df
 
-        # -----------------------------------------------------
-        # [저장 버튼 동작]
-        # -----------------------------------------------------
-        if save_button_clicked:
-            save_data_to_file(edited_df)
-            
         st.divider()
         
-        # [CSV 다운로드] - 현재 편집 중인 데이터 기준
-        csv = edited_df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 현재 데이터 CSV 다운로드", csv, "promotion_data.csv", "text/csv")
+        # CSV 다운로드
+        csv = st.session_state.draft_df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 현재 작업중인 데이터 다운로드", csv, "promotion_draft.csv", "text/csv")
