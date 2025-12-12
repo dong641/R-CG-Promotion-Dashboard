@@ -45,7 +45,7 @@ def load_weekly_tasks():
             if 'Due_Date' in df.columns:
                 df['Due_Date'] = pd.to_datetime(df['Due_Date'], errors='coerce').dt.date
             
-            # [수정] 필터링을 위해 Week_Start를 반드시 문자열로 변환
+            # [핵심] 필터링 오류 방지를 위해 Week_Start를 반드시 문자열로 통일
             if 'Week_Start' in df.columns:
                 df['Week_Start'] = df['Week_Start'].astype(str)
                 
@@ -194,7 +194,7 @@ elif page == "📅 주간 업무":
     start_of_week = pick_date - datetime.timedelta(days=pick_date.weekday())
     end_of_week = start_of_week + datetime.timedelta(days=6)
     
-    # [수정] 날짜를 문자열로 명확하게 변환 (비교용)
+    # 날짜 비교를 위해 문자열 변환
     start_of_week_str = str(start_of_week)
     
     with col_week_info:
@@ -202,80 +202,20 @@ elif page == "📅 주간 업무":
 
     st.divider()
 
-    # 2. 업무 등록
-    with st.expander("➕ 내 업무 등록 (Click)", expanded=True):
-        st.markdown("#### 1️⃣ 작성자 선택")
-        managers = list(st.session_state.promotions['담당자'].unique()) if '담당자' in st.session_state.promotions.columns else []
-        if "기타(직접입력)" not in managers: managers.append("기타(직접입력)")
-        
-        col_assignee, _ = st.columns([1, 2])
-        with col_assignee:
-            selected_assignee = st.selectbox("본인의 이름을 선택하세요", managers, key="task_assignee_selector")
-            if selected_assignee == "기타(직접입력)":
-                real_assignee = st.text_input("이름 직접 입력")
-            else:
-                real_assignee = selected_assignee
-
-        st.markdown("#### 2️⃣ 업무 내용 입력")
-        st.caption("아래 표에 업무를 입력하세요.")
-
-        input_template = pd.DataFrame(columns=["Category", "Content", "Due_Date"])
-        
-        column_config = {
-            "Category": st.column_config.SelectboxColumn("구분", options=["금주 실적", "차주 계획", "이슈 사항"], required=True, width="medium"),
-            "Content": st.column_config.TextColumn("업무 내용", required=True, width="large"),
-            "Due_Date": st.column_config.DateColumn("기한", default=datetime.date.today(), required=True),
-        }
-
-        edited_input = st.data_editor(
-            input_template,
-            column_config=column_config,
-            num_rows="dynamic",
-            use_container_width=True,
-            key="weekly_input_editor"
-        )
-        
-        if st.button("💾 입력한 업무 등록하기", type="primary"):
-            if real_assignee:
-                # [수정] 데이터 유효성 검사 강화 (내용이 있는 행만 추출)
-                if not edited_input.empty:
-                    # Content가 비어있지 않은 행만 유효한 것으로 간주
-                    edited_input = edited_input.dropna(subset=['Content'])
-                    valid_rows = edited_input[edited_input['Content'].str.strip() != ""].copy()
-                    
-                    if not valid_rows.empty:
-                        valid_rows['Assignee'] = real_assignee
-                        valid_rows['Week_Start'] = start_of_week_str # 문자열로 저장
-                        valid_rows['Status'] = '진행중'
-                        
-                        # Category가 비어있으면 기본값 설정
-                        if 'Category' not in valid_rows.columns or valid_rows['Category'].isnull().any():
-                             valid_rows['Category'] = valid_rows['Category'].fillna("금주 실적")
-                        
-                        if add_weekly_tasks_batch(valid_rows):
-                            st.toast(f"{len(valid_rows)}건의 업무가 등록되었습니다!", icon="✅")
-                            safe_rerun()
-                    else:
-                        st.error("업무 내용을 입력해주세요.")
-                else:
-                    st.warning("입력된 내용이 없습니다.")
-            else:
-                st.error("작성자(담당자)를 선택해주세요.")
-
-    st.divider()
-
-    # 3. 주간 업무 전체 조회
+    # [순서 변경] 2. 주간 업무 전체 조회 (먼저 보여줌)
     st.subheader(f"📋 {start_of_week} 주간 전체 업무 현황")
     
+    # 데이터 로드 (매번 최신 데이터를 파일에서 읽어옴)
     all_tasks = load_weekly_tasks()
     
-    # [수정] 날짜 필터링 시 둘 다 문자열로 변환하여 비교
-    # all_tasks['Week_Start']는 load_weekly_tasks에서 이미 문자열로 변환됨
+    # 현재 주차 데이터 필터링 (문자열 비교)
     current_week_tasks = all_tasks[all_tasks['Week_Start'] == start_of_week_str]
     
     if not current_week_tasks.empty:
+        # 정렬: 담당자 이름순 -> 카테고리순
         current_week_tasks = current_week_tasks.sort_values(by=['Assignee', 'Category'])
         
+        # 3단 컬럼 구성
         col_achieve, col_plan, col_issue = st.columns(3)
         view_config = {
             "Content": st.column_config.TextColumn("내용", width="large"),
@@ -310,6 +250,69 @@ elif page == "📅 주간 업무":
                     safe_rerun()
     else:
         st.info("해당 주차에 등록된 업무가 없습니다.")
+
+    st.divider()
+
+    # [순서 변경] 3. 업무 등록 (하단 배치)
+    with st.expander("➕ 내 업무 등록 (Click)", expanded=True):
+        st.markdown("#### 1️⃣ 작성자 선택")
+        managers = list(st.session_state.promotions['담당자'].unique()) if '담당자' in st.session_state.promotions.columns else []
+        if "기타(직접입력)" not in managers: managers.append("기타(직접입력)")
+        
+        col_assignee, _ = st.columns([1, 2])
+        with col_assignee:
+            selected_assignee = st.selectbox("본인의 이름을 선택하세요", managers, key="task_assignee_selector")
+            if selected_assignee == "기타(직접입력)":
+                real_assignee = st.text_input("이름 직접 입력")
+            else:
+                real_assignee = selected_assignee
+
+        st.markdown("#### 2️⃣ 업무 내용 입력")
+        st.caption("아래 표에 업무를 입력하세요.")
+
+        input_template = pd.DataFrame(columns=["Category", "Content", "Due_Date"])
+        
+        column_config = {
+            "Category": st.column_config.SelectboxColumn("구분", options=["금주 실적", "차주 계획", "이슈 사항"], required=True, width="medium"),
+            "Content": st.column_config.TextColumn("업무 내용", required=True, width="large"),
+            "Due_Date": st.column_config.DateColumn("기한", default=datetime.date.today(), required=True),
+        }
+
+        edited_input = st.data_editor(
+            input_template,
+            column_config=column_config,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="weekly_input_editor"
+        )
+        
+        if st.button("💾 입력한 업무 등록하기", type="primary"):
+            if real_assignee:
+                # 입력 데이터 유효성 검사 및 가공
+                if not edited_input.empty:
+                    # 내용이 있는 행만 필터링
+                    edited_input = edited_input.dropna(subset=['Content'])
+                    valid_rows = edited_input[edited_input['Content'].str.strip() != ""].copy()
+                    
+                    if not valid_rows.empty:
+                        # 메타 데이터 추가
+                        valid_rows['Assignee'] = real_assignee
+                        valid_rows['Week_Start'] = start_of_week_str # 문자열로 통일하여 저장
+                        valid_rows['Status'] = '진행중'
+                        
+                        # 구분값이 비어있을 경우 기본값 처리
+                        if 'Category' not in valid_rows.columns or valid_rows['Category'].isnull().any():
+                             valid_rows['Category'] = valid_rows['Category'].fillna("금주 실적")
+                        
+                        if add_weekly_tasks_batch(valid_rows):
+                            st.toast(f"{len(valid_rows)}건의 업무가 등록되었습니다!", icon="✅")
+                            safe_rerun() # 새로고침 시 상단의 조회 로직이 먼저 실행되어 데이터가 보임
+                    else:
+                        st.error("업무 내용을 입력해주세요.")
+                else:
+                    st.warning("입력된 내용이 없습니다.")
+            else:
+                st.error("작성자(담당자)를 선택해주세요.")
 
 # ---------------------------------------------------------
 # 3. 관리자 페이지
