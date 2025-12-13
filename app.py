@@ -130,7 +130,7 @@ if not st.session_state.is_global_unlocked:
 # ---------------------------------------------------------
 with st.sidebar:
     st.title("메뉴")
-    page = st.radio("이동할 페이지", ["📊 대시보드", "📅 주간 업무", "⚙️ 관리자 페이지"])
+    page = st.radio("이동할 페이지", ["📊 대시보드", "📅 주간 업무 (PPP)", "⚙️ 관리자 페이지"])
     st.divider()
     if st.button("🚪 로그아웃"):
         st.session_state.is_global_unlocked = False
@@ -171,7 +171,6 @@ if page == "📊 대시보드":
     st.subheader("📋 프로모션 리스트")
     
     # [추가] 탭으로 구분하여 보기 (진행중 / 완료 / 전체)
-    # 필터링된 데이터(filtered_df)를 기준으로 나눔
     df_active = filtered_df[filtered_df['상태'] != '완료']
     df_completed = filtered_df[filtered_df['상태'] == '완료']
     
@@ -193,9 +192,9 @@ if page == "📊 대시보드":
         st.dataframe(filtered_df, column_config=cfg, use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------
-# PAGE 2: 주간 업무
+# PAGE 2: 주간 업무 (PPP)
 # ---------------------------------------------------------
-elif page == "📅 주간 업무":
+elif page == "📅 주간 업무 (PPP)":
     st.title("📅 Weekly Business Review")
     
     col_date, col_view_opt = st.columns([1, 2])
@@ -253,12 +252,12 @@ elif page == "📅 주간 업무":
                                         st.markdown(f"{icon} {p_tag} {row['Content']}")
 
                             st.markdown("**✅ 금주 실적**")
-                            render_ppp_section(p_df[p_df['Type'] == 'Progress'])
+                            render_ppp_section(p_df[p_df['Type'] == '금주 실적'])
                             st.divider()
                             st.markdown("**🗓️ 차주 계획**")
-                            render_ppp_section(p_df[p_df['Type'] == 'Plans'])
+                            render_ppp_section(p_df[p_df['Type'] == '차주 계획'])
                             
-                            prob_df = p_df[p_df['Type'] == 'Problems']
+                            prob_df = p_df[p_df['Type'] == '이슈사항']
                             if not prob_df.empty:
                                 st.divider()
                                 st.markdown("**⚠️ 이슈 사항**")
@@ -281,11 +280,12 @@ elif page == "📅 주간 업무":
             if not my_data.empty:
                 input_df = my_data.reset_index(drop=True)
             else:
+                # 템플릿 생성 (한글로 변경)
                 tmpl = [
-                    {"Week_Start": week_str, "Assignee": me, "Type": "Progress", "Project": "-", "Content": "", "Status": "정상"},
-                    {"Week_Start": week_str, "Assignee": me, "Type": "Progress", "Project": "-", "Content": "", "Status": "정상"},
-                    {"Week_Start": week_str, "Assignee": me, "Type": "Plans", "Project": "-", "Content": "", "Status": "정상"},
-                    {"Week_Start": week_str, "Assignee": me, "Type": "Plans", "Project": "-", "Content": "", "Status": "정상"},
+                    {"Week_Start": week_str, "Assignee": me, "Type": "금주 실적", "Project": "-", "Content": "", "Status": "정상"},
+                    {"Week_Start": week_str, "Assignee": me, "Type": "금주 실적", "Project": "-", "Content": "", "Status": "정상"},
+                    {"Week_Start": week_str, "Assignee": me, "Type": "차주 계획", "Project": "-", "Content": "", "Status": "정상"},
+                    {"Week_Start": week_str, "Assignee": me, "Type": "차주 계획", "Project": "-", "Content": "", "Status": "정상"},
                 ]
                 input_df = pd.DataFrame(tmpl)
 
@@ -295,7 +295,8 @@ elif page == "📅 주간 업무":
                 input_df,
                 column_config={
                     "Week_Start": None, "Assignee": None,
-                    "Type": st.column_config.SelectboxColumn("구분", options=["Progress", "Plans", "Problems"], required=True),
+                    "Type": st.column_config.SelectboxColumn("구분", options=["금주 실적", "차주 계획", "이슈사항"], required=True),
+                    "Project": st.column_config.SelectboxColumn("관련 프로모션", options=proj_list, required=True),
                     "Content": st.column_config.TextColumn("내용", required=True, width="large"),
                     "Status": st.column_config.SelectboxColumn("상태", options=["정상", "지연", "중단"], required=True)
                 },
@@ -320,7 +321,7 @@ elif page == "📅 주간 업무":
             st.info("작성자를 먼저 선택해주세요.")
 
 # ---------------------------------------------------------
-# PAGE 3: 관리자 페이지 (기능 복구됨)
+# PAGE 3: 관리자 페이지
 # ---------------------------------------------------------
 elif page == "⚙️ 관리자 페이지":
     # 3.1 관리자 인증
@@ -347,7 +348,7 @@ elif page == "⚙️ 관리자 페이지":
                     if save_promotions(st.session_state.draft_df):
                         st.toast("✅ 저장 완료! 대시보드에 적용되었습니다.", icon="🎉")
         
-        st.info("💡 아래에서 데이터를 수정(Draft)한 후, 우측 상단의 **'저장'** 버튼을 눌러야 대시보드에 반영됩니다.")
+        st.info("💡 아래에서 데이터를 수정(Draft)한 후, 우측 상단의 **'저장'** 버튼을 눌러야 구글 시트에 반영됩니다.")
 
         # -----------------------------------------------------
         # 기능 1: 컬럼(열) 관리
@@ -478,7 +479,3 @@ elif page == "⚙️ 관리자 페이지":
         
         csv = st.session_state.draft_df.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 현재 데이터 CSV 다운로드", csv, "promotion_data.csv", "text/csv")
-
-
-
-
