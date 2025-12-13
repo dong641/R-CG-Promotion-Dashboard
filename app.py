@@ -296,7 +296,6 @@ elif page == "📅 주간 업무":
                 column_config={
                     "Week_Start": None, "Assignee": None,
                     "Type": st.column_config.SelectboxColumn("구분", options=["Progress", "Plans", "Problems"], required=True),
-                    "Project": st.column_config.SelectboxColumn("관련 프로모션", options=proj_list, required=True),
                     "Content": st.column_config.TextColumn("내용", required=True, width="large"),
                     "Status": st.column_config.SelectboxColumn("상태", options=["정상", "지연", "중단"], required=True)
                 },
@@ -479,6 +478,7 @@ elif page == "⚙️ 관리자 페이지":
         
         csv = st.session_state.draft_df.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 현재 데이터 CSV 다운로드", csv, "promotion_data.csv", "text/csv")
+
 
 
 
