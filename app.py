@@ -150,7 +150,8 @@ if page == "📊 대시보드":
     c2.metric("진행중", f"{len(df[df['상태']=='진행중'])}건")
     c3.metric("완료", f"{len(df[df['상태']=='완료'])}건")
     
-    active_df = df[df['상태']!='완료']
+    # [수정] 평균 진척율 계산 시 완료 상태 제외
+    active_df = df[df['상태'] != '완료']
     avg_prog = active_df['진척율'].mean() if not active_df.empty else 0
     c4.metric("평균 달성률(완료제외)", f"{avg_prog:.1f}%")
 
@@ -168,8 +169,28 @@ if page == "📊 대시보드":
                 if sel: filtered_df = filtered_df[filtered_df[col].astype(str).isin(sel)]
     
     st.subheader("📋 프로모션 리스트")
+    
+    # [추가] 탭으로 구분하여 보기 (진행중 / 완료 / 전체)
+    # 필터링된 데이터(filtered_df)를 기준으로 나눔
+    df_active = filtered_df[filtered_df['상태'] != '완료']
+    df_completed = filtered_df[filtered_df['상태'] == '완료']
+    
+    tab1, tab2, tab3 = st.tabs([
+        f"🔥 진행 중 ({len(df_active)})", 
+        f"✅ 완료됨 ({len(df_completed)})", 
+        f"📑 전체 목록 ({len(filtered_df)})"
+    ])
+    
     cfg = {"진척율": st.column_config.ProgressColumn(format="%d%%", min_value=0, max_value=100)}
-    st.dataframe(filtered_df, column_config=cfg, use_container_width=True, hide_index=True)
+    
+    with tab1:
+        st.dataframe(df_active, column_config=cfg, use_container_width=True, hide_index=True)
+        
+    with tab2:
+        st.dataframe(df_completed, column_config=cfg, use_container_width=True, hide_index=True)
+        
+    with tab3:
+        st.dataframe(filtered_df, column_config=cfg, use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------
 # PAGE 2: 주간 업무 (PPP)
