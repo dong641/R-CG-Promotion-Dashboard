@@ -130,7 +130,7 @@ if not st.session_state.is_global_unlocked:
 # ---------------------------------------------------------
 with st.sidebar:
     st.title("메뉴")
-    page = st.radio("이동할 페이지", ["📊 대시보드", "📅 주간 업무 (PPP)", "⚙️ 관리자 페이지"])
+    page = st.radio("이동할 페이지", ["📊 대시보드", "📅 주간 업무", "⚙️ 관리자 페이지"])
     st.divider()
     if st.button("🚪 로그아웃"):
         st.session_state.is_global_unlocked = False
@@ -479,4 +479,5 @@ elif page == "⚙️ 관리자 페이지":
         
         csv = st.session_state.draft_df.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 현재 데이터 CSV 다운로드", csv, "promotion_data.csv", "text/csv")
+
 
