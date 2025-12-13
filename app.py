@@ -193,9 +193,9 @@ if page == "📊 대시보드":
         st.dataframe(filtered_df, column_config=cfg, use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------
-# PAGE 2: 주간 업무 (PPP)
+# PAGE 2: 주간 업무
 # ---------------------------------------------------------
-elif page == "📅 주간 업무 (PPP)":
+elif page == "📅 주간 업무":
     st.title("📅 Weekly Business Review")
     
     col_date, col_view_opt = st.columns([1, 2])
@@ -479,5 +479,6 @@ elif page == "⚙️ 관리자 페이지":
         
         csv = st.session_state.draft_df.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 현재 데이터 CSV 다운로드", csv, "promotion_data.csv", "text/csv")
+
 
 
