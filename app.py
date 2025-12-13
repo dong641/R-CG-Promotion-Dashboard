@@ -130,7 +130,7 @@ if not st.session_state.is_global_unlocked:
 # ---------------------------------------------------------
 with st.sidebar:
     st.title("메뉴")
-    page = st.radio("이동할 페이지", ["📊 대시보드", "📅 주간 업무 (PPP)", "⚙️ 관리자 페이지"])
+    page = st.radio("이동할 페이지", ["📊 대시보드", "📅 주간 업무", "⚙️ 관리자 페이지"])
     st.divider()
     if st.button("🚪 로그아웃"):
         st.session_state.is_global_unlocked = False
@@ -192,9 +192,9 @@ if page == "📊 대시보드":
         st.dataframe(filtered_df, column_config=cfg, use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------
-# PAGE 2: 주간 업무 (PPP)
+# PAGE 2: 주간 업무
 # ---------------------------------------------------------
-elif page == "📅 주간 업무 (PPP)":
+elif page == "📅 주간 업무":
     st.title("📅 Weekly Business Review")
     
     col_date, col_view_opt = st.columns([1, 2])
@@ -296,7 +296,6 @@ elif page == "📅 주간 업무 (PPP)":
                 column_config={
                     "Week_Start": None, "Assignee": None,
                     "Type": st.column_config.SelectboxColumn("구분", options=["금주 실적", "차주 계획", "이슈사항"], required=True),
-                    "Project": st.column_config.SelectboxColumn("관련 프로모션", options=proj_list, required=True),
                     "Content": st.column_config.TextColumn("내용", required=True, width="large"),
                     "Status": st.column_config.SelectboxColumn("상태", options=["정상", "지연", "중단"], required=True)
                 },
@@ -479,3 +478,4 @@ elif page == "⚙️ 관리자 페이지":
         
         csv = st.session_state.draft_df.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 현재 데이터 CSV 다운로드", csv, "promotion_data.csv", "text/csv")
+
