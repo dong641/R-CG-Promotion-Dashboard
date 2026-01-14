@@ -52,16 +52,23 @@ def create_default_promotions():
         {"프로모션명": "신규 회원 가입 이벤트", "채널": "On Trade", "담당자": "이영희", "상태": "기획단계", "진척율": 20, "시작일": datetime.date(2024, 4, 1), "종료일": datetime.date(2024, 4, 30)},
     ])
 
+def create_default_projects():
+    """[신규] 프로젝트 관리용 별도 데이터"""
+    return pd.DataFrame([
+        {"Project": "신제품 런칭 프로젝트", "Owner": "박팀장", "Status": "진행중", "Progress": 45, "Start": datetime.date(2024, 3, 1), "End": datetime.date(2024, 5, 31)},
+        {"Project": "웹사이트 리뉴얼", "Owner": "최대리", "Status": "기획", "Progress": 10, "Start": datetime.date(2024, 4, 1), "End": datetime.date(2024, 6, 30)},
+    ])
+
 def create_empty_report_df():
     return pd.DataFrame(columns=["Week_Start", "Assignee", "Type", "Project", "Content", "Status"])
 
 def create_default_project_tasks():
     """간트차트용 상세 태스크 데이터 (별도 관리)"""
     return pd.DataFrame([
-        {"Project": "2024 봄 정기 세일", "Task": "기획안 확정", "Department": "기획팀", "Start": "2024-03-01", "End": "2024-03-05", "Progress": 100, "Milestone": "Y"},
-        {"Project": "2024 봄 정기 세일", "Task": "디자인 시안 제작", "Department": "디자인팀", "Start": "2024-03-06", "End": "2024-03-10", "Progress": 60, "Milestone": "N"},
-        {"Project": "2024 봄 정기 세일", "Task": "개발 및 QA", "Department": "개발팀", "Start": "2024-03-11", "End": "2024-03-15", "Progress": 0, "Milestone": "Y"},
-        {"Project": "신규 회원 가입 이벤트", "Task": "프로모션 페이지 기획", "Department": "기획팀", "Start": "2024-04-01", "End": "2024-04-10", "Progress": 20, "Milestone": "N"}
+        {"Project": "신제품 런칭 프로젝트", "Task": "시장 조사 완료", "Department": "기획팀", "Start": "2024-03-01", "End": "2024-03-10", "Progress": 100, "Milestone": "Y"},
+        {"Project": "신제품 런칭 프로젝트", "Task": "패키지 디자인", "Department": "디자인팀", "Start": "2024-03-11", "End": "2024-03-25", "Progress": 60, "Milestone": "N"},
+        {"Project": "신제품 런칭 프로젝트", "Task": "시제품 생산", "Department": "생산팀", "Start": "2024-03-26", "End": "2024-04-15", "Progress": 0, "Milestone": "Y"},
+        {"Project": "웹사이트 리뉴얼", "Task": "메인 페이지 기획", "Department": "기획팀", "Start": "2024-04-01", "End": "2024-04-15", "Progress": 20, "Milestone": "N"}
     ])
 
 # ---------------------------------------------------------
@@ -76,15 +83,20 @@ def load_all_data():
         df_promo['진척율'] = pd.to_numeric(df_promo['진척율'].astype(str).str.replace('%',''), errors='coerce').fillna(0).astype(int)
     st.session_state.promotions = df_promo
 
-    # 2. 프로젝트 상세 태스크 데이터 (독립적 로드)
+    # 2. [신규] 프로젝트 목록 데이터 (프로모션과 분리)
+    df_projects = load_data("projects", create_default_projects)
+    for col in ['Start', 'End']:
+        if col in df_projects.columns: df_projects[col] = pd.to_datetime(df_projects[col], errors='coerce').dt.date
+    if 'Progress' in df_projects.columns:
+        df_projects['Progress'] = pd.to_numeric(df_projects['Progress'], errors='coerce').fillna(0).astype(int)
+    st.session_state.projects = df_projects
+
+    # 3. 프로젝트 상세 태스크 데이터
     df_tasks = load_data("project_tasks", create_default_project_tasks)
-    # 날짜 전처리 (Plotly 호환용)
     for col in ['Start', 'End']:
         if col in df_tasks.columns: df_tasks[col] = pd.to_datetime(df_tasks[col], errors='coerce').dt.date
-    # 숫자 전처리
     if 'Progress' in df_tasks.columns:
         df_tasks['Progress'] = pd.to_numeric(df_tasks['Progress'], errors='coerce').fillna(0).astype(int)
-        
     st.session_state.project_tasks = df_tasks
 
 # ---------------------------------------------------------
@@ -159,174 +171,238 @@ if page == "📊 대시보드":
 # ---------------------------------------------------------
 elif page == "🧩 프로젝트 간트차트":
     st.title("🧩 프로젝트 관리 (Gantt Chart)")
-    st.caption("프로모션별 상세 일정과 마일스톤을 관리합니다. 데이터는 별도의 시트(project_tasks)에 저장됩니다.")
+    st.caption("독립적인 프로젝트 일정과 세부 마일스톤을 관리합니다.")
     
     # 데이터 준비
+    projects_df = st.session_state.projects.copy()
     tasks_df = st.session_state.project_tasks.copy()
-    promos_df = st.session_state.promotions.copy()
     
     # 날짜 형식 보장
-    tasks_df['Start'] = pd.to_datetime(tasks_df['Start'])
-    tasks_df['End'] = pd.to_datetime(tasks_df['End'])
-    promos_df['시작일'] = pd.to_datetime(promos_df['시작일'])
-    promos_df['종료일'] = pd.to_datetime(promos_df['종료일'])
+    for df_temp in [projects_df, tasks_df]:
+        if not df_temp.empty:
+            df_temp['Start'] = pd.to_datetime(df_temp['Start'])
+            df_temp['End'] = pd.to_datetime(df_temp['End'])
 
-    tab_overview, tab_detail = st.tabs(["🌐 전체 현황 (Overview)", "🔍 프로젝트 상세 관리 (Detail)"])
+    tab_overview, tab_detail = st.tabs(["🌐 전체 프로젝트 현황 (Overview)", "🔍 상세 일정 및 업무 (Detail)"])
 
     # --- 1. 전체 프로젝트 현황 (Overview) ---
     with tab_overview:
-        if not promos_df.empty:
-            # 전체 프로젝트 타임라인
+        st.subheader("📌 전체 프로젝트 일정")
+        
+        if not projects_df.empty:
+            # 간트차트
             fig_overview = px.timeline(
-                promos_df, 
-                x_start="시작일", 
-                x_end="종료일", 
-                y="프로모션명",
-                color="진척율",
-                color_continuous_scale="Teal", # 색상 변경
-                hover_data=["담당자", "상태"],
-                text="진척율"
+                projects_df, 
+                x_start="Start", 
+                x_end="End", 
+                y="Project",
+                color="Progress",
+                color_continuous_scale="Teal",
+                hover_data=["Owner", "Status"],
+                text="Progress"
             )
-            # [요청 반영] 날짜 위로 올리기 및 가시성 개선
             fig_overview.update_xaxes(side="top", title_font=dict(size=14, color='gray'))
-            fig_overview.update_yaxes(autorange="reversed", title="") # Y축 제목 제거
+            fig_overview.update_yaxes(autorange="reversed", title="")
             fig_overview.update_traces(textposition='inside', marker_line_color='rgb(8,48,107)', marker_line_width=1.5, opacity=0.9)
             fig_overview.update_layout(
-                height=400 + (len(promos_df)*40),
+                height=300 + (len(projects_df)*40),
                 margin=dict(t=50, b=20, l=20, r=20),
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(family="Arial", size=12)
+                plot_bgcolor='rgba(0,0,0,0)'
             )
             st.plotly_chart(fig_overview, use_container_width=True)
         else:
-            st.info("등록된 프로모션이 없습니다.")
+            st.info("등록된 프로젝트가 없습니다.")
 
-    # --- 2. 프로젝트 상세 (Detail - UX 개선) ---
+        st.divider()
+        
+        # [신규] 프로젝트 생성/삭제 기능
+        with st.expander("🛠️ 프로젝트 생성 및 삭제", expanded=True):
+            col_add, col_del = st.columns(2)
+            
+            # 생성
+            with col_add:
+                st.markdown("##### ➕ 새 프로젝트 생성")
+                with st.form("new_project_form"):
+                    np_name = st.text_input("프로젝트명")
+                    np_owner = st.text_input("책임자 (PM)")
+                    c1, c2 = st.columns(2)
+                    np_start = c1.date_input("시작일", datetime.date.today())
+                    np_end = c2.date_input("종료일", datetime.date.today() + datetime.timedelta(days=30))
+                    
+                    if st.form_submit_button("프로젝트 생성"):
+                        if np_name:
+                            new_p = pd.DataFrame([{
+                                "Project": np_name, "Owner": np_owner, "Status": "준비", 
+                                "Progress": 0, "Start": str(np_start), "End": str(np_end)
+                            }])
+                            updated_projects = pd.concat([st.session_state.projects, new_p], ignore_index=True)
+                            if save_data("projects", updated_projects):
+                                st.session_state.projects = updated_projects
+                                st.success(f"'{np_name}' 프로젝트가 생성되었습니다.")
+                                safe_rerun()
+                        else:
+                            st.error("프로젝트명을 입력하세요.")
+
+            # 삭제
+            with col_del:
+                st.markdown("##### 🗑️ 프로젝트 삭제")
+                if not projects_df.empty:
+                    del_target = st.selectbox("삭제할 프로젝트 선택", projects_df['Project'].unique())
+                    if st.button("프로젝트 삭제"):
+                        # 프로젝트 삭제
+                        updated_projects = st.session_state.projects[st.session_state.projects['Project'] != del_target]
+                        # 관련 태스크도 삭제할지 여부는 정책에 따름 (여기선 프로젝트만 삭제)
+                        if save_data("projects", updated_projects):
+                            st.session_state.projects = updated_projects
+                            st.success(f"'{del_target}' 프로젝트가 삭제되었습니다.")
+                            safe_rerun()
+                else:
+                    st.caption("삭제할 프로젝트가 없습니다.")
+
+    # --- 2. 프로젝트 상세 (Detail - 팀별 행 분리) ---
     with tab_detail:
-        # 프로젝트 선택 (모바일 친화적 Selectbox)
-        project_list = promos_df['프로모션명'].unique()
-        selected_project = st.selectbox("📂 프로젝트 선택", project_list, label_visibility="collapsed", placeholder="프로젝트를 선택하세요")
+        # 프로젝트 선택
+        p_list = projects_df['Project'].unique() if not projects_df.empty else []
+        selected_project = st.selectbox("📂 프로젝트 선택", p_list, placeholder="프로젝트를 선택하세요")
         
         if selected_project:
             # 해당 프로젝트의 태스크 필터링
-            p_tasks = tasks_df[tasks_df['Project'] == selected_project].sort_values(by='Start')
-            
-            # 1) 요약 지표 (카드형)
-            st.markdown("######") # 간격
-            col_m1, col_m2, col_m3 = st.columns(3)
-            
-            total_tasks = len(p_tasks)
-            milestones_cnt = len(p_tasks[p_tasks['Milestone'] == 'Y'])
-            # 프로젝트 평균 진행률 (태스크 기준)
-            task_prog = int(p_tasks['Progress'].mean()) if not p_tasks.empty else 0
-            
-            col_m1.metric("총 태스크", f"{total_tasks}개")
-            col_m2.metric("마일스톤", f"{milestones_cnt}개")
-            col_m3.metric("상세 진행률", f"{task_prog}%")
+            p_tasks = tasks_df[tasks_df['Project'] == selected_project].sort_values(by=['Department', 'Start'])
             
             st.divider()
-
-            # 2) 상세 간트차트 (가시성 최적화)
-            st.markdown("##### 📅 일정 타임라인")
             
-            if not p_tasks.empty:
-                fig_detail = px.timeline(
-                    p_tasks,
-                    x_start="Start", 
-                    x_end="End", 
-                    y="Department",
-                    color="Department", # 부서별 색상 구분
-                    hover_data=["Task", "Progress"],
-                    text="Task",
-                    range_x=[p_tasks['Start'].min() - datetime.timedelta(days=2), p_tasks['End'].max() + datetime.timedelta(days=5)]
-                )
-                
-                # [요청 반영] 날짜 위로, 디자인 개선
-                fig_detail.update_xaxes(
-                    side="top", 
-                    tickformat="%m-%d",
-                    dtick="D7", # 1주 단위 눈금
-                    showgrid=True, 
-                    gridwidth=1, 
-                    gridcolor='LightGray'
-                )
-                fig_detail.update_yaxes(autorange="reversed", title="", showgrid=True, gridcolor='LightGray')
-                fig_detail.update_layout(
-                    height=300 + (len(p_tasks['Department'].unique()) * 50),
-                    margin=dict(t=60, b=20, l=20, r=20),
-                    showlegend=True,
-                    legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="right", x=1),
-                    plot_bgcolor='white'
-                )
-                fig_detail.update_traces(marker_line_width=1, opacity=0.8, textposition='inside')
-
-                # 마일스톤 (별 표시)
-                milestones = p_tasks[p_tasks['Milestone'] == 'Y']
-                if not milestones.empty:
-                    fig_detail.add_scatter(
-                        x=milestones['End'], 
-                        y=milestones['Department'], 
-                        mode='markers+text',
-                        marker=dict(symbol='star', size=18, color='gold', line=dict(width=1, color='DarkOrange')),
-                        text=['★' for _ in range(len(milestones))],
-                        textposition="top center",
-                        name='마일스톤',
-                        showlegend=False
-                    )
-                
-                st.plotly_chart(fig_detail, use_container_width=True)
-            else:
-                st.info("등록된 상세 일정이 없습니다. 아래에서 추가해주세요.")
-
-            st.divider()
-
-            # 3) 태스크 관리 (Data Editor - 모바일 친화적)
-            st.markdown("##### 📝 태스크 리스트 및 편집")
-            st.caption("아래 표에서 직접 수정하거나 행을 추가(+)할 수 있습니다. 수정 후 우측 상단의 '변경사항 저장'을 누르세요.")
-
-            # 편집용 데이터프레임 (프로젝트명 제외하고 보여줌 - 깔끔하게)
-            edit_df = p_tasks.drop(columns=['Project']).reset_index(drop=True)
+            # (좌측) 부서별/업무별 간트차트 (행 분리)
+            col_chart, col_input = st.columns([2, 1])
             
-            # 컬럼 설정
-            column_config = {
-                "Department": st.column_config.SelectboxColumn("부서", options=["기획팀", "디자인팀", "개발팀", "영업팀", "마케팅팀", "기타"], required=True, width="small"),
-                "Task": st.column_config.TextColumn("업무명", required=True, width="medium"),
-                "Start": st.column_config.DateColumn("시작일", width="small"),
-                "End": st.column_config.DateColumn("종료일", width="small"),
-                "Progress": st.column_config.ProgressColumn("진행률", min_value=0, max_value=100, format="%d%%", width="small"),
-                "Milestone": st.column_config.CheckboxColumn("마일스톤", width="small")
-            }
-
-            edited_tasks = st.data_editor(
-                edit_df,
-                column_config=column_config,
-                num_rows="dynamic", # 행 추가/삭제 가능
-                use_container_width=True,
-                key=f"editor_{selected_project}"
-            )
-
-            # 저장 로직 (Project 컬럼 다시 붙여서 전체 병합)
-            if st.button("💾 변경사항 저장 (Google Sheet)", type="primary", use_container_width=True):
-                # 1. 현재 프로젝트를 제외한 나머지 데이터 보존
-                other_projects_tasks = tasks_df[tasks_df['Project'] != selected_project]
+            with col_chart:
+                st.markdown(f"##### 📊 [{selected_project}] 상세 타임라인")
                 
-                # 2. 현재 프로젝트의 수정된 데이터 준비
-                if not edited_tasks.empty:
-                    edited_tasks['Project'] = selected_project # 프로젝트명 다시 부여
-                    # 날짜 문자열 변환
-                    edited_tasks['Start'] = edited_tasks['Start'].astype(str)
-                    edited_tasks['End'] = edited_tasks['End'].astype(str)
+                if not p_tasks.empty:
+                    # Y축 레이블을 '[부서] 업무명' 형태로 가공하여 행 분리 유도
+                    p_tasks['Label'] = "[" + p_tasks['Department'] + "] " + p_tasks['Task']
+                    p_tasks = p_tasks.sort_values(by=['Department', 'Start'], ascending=[True, True])
+
+                    # 마일스톤 분리
+                    milestones = p_tasks[p_tasks['Milestone'] == 'Y']
                     
-                    # 3. 데이터 병합
-                    final_tasks = pd.concat([other_projects_tasks, edited_tasks], ignore_index=True)
-                else:
-                    final_tasks = other_projects_tasks # 모든 태스크 삭제 시
+                    fig_detail = px.timeline(
+                        p_tasks,
+                        x_start="Start", 
+                        x_end="End", 
+                        y="Label", # Y축을 업무 단위로 설정하여 행 분리
+                        color="Department", # 색상은 부서별로 통일
+                        hover_data=["Task", "Progress", "Department"],
+                        text="Progress"
+                    )
+                    
+                    fig_detail.update_xaxes(
+                        side="top", 
+                        tickformat="%m-%d",
+                        dtick="D7", 
+                        showgrid=True, 
+                        gridwidth=1, 
+                        gridcolor='LightGray'
+                    )
+                    fig_detail.update_yaxes(
+                        autorange="reversed", 
+                        title="", 
+                        showgrid=True,
+                        tickfont=dict(size=12)
+                    )
+                    fig_detail.update_layout(
+                        height=max(400, len(p_tasks) * 40), # 행 개수에 따라 높이 자동 조절
+                        margin=dict(t=60, b=20, l=20, r=20),
+                        showlegend=True,
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                        plot_bgcolor='white'
+                    )
+                    fig_detail.update_traces(marker_line_width=1, opacity=0.8, texttemplate='%{text}%', textposition='inside')
 
-                # 4. 저장
-                if save_data("project_tasks", final_tasks):
-                    st.session_state.project_tasks = final_tasks # 세션 업데이트
-                    st.toast("✅ 태스크가 성공적으로 저장되었습니다!")
-                    safe_rerun()
+                    # 마일스톤 강조
+                    if not milestones.empty:
+                        fig_detail.add_scatter(
+                            x=milestones['End'], 
+                            y=milestones['Label'], 
+                            mode='markers',
+                            marker=dict(symbol='star', size=15, color='gold', line=dict(width=1, color='black')),
+                            name='마일스톤',
+                            showlegend=False
+                        )
+                    
+                    st.plotly_chart(fig_detail, use_container_width=True)
+                else:
+                    st.info("등록된 상세 일정이 없습니다. 우측에서 추가해주세요.")
+
+            # (우측) 태스크 입력 및 관리
+            with col_input:
+                st.markdown("##### 📝 상세 업무 등록")
+                with st.expander("➕ 새 업무/마일스톤 추가", expanded=True):
+                    with st.form("add_detail_task"):
+                        t_dept = st.selectbox("담당 부서/팀", ["기획팀", "디자인팀", "개발팀", "영업팀", "마케팅팀", "기타"])
+                        t_name = st.text_input("업무명 (Task)")
+                        c1, c2 = st.columns(2)
+                        t_start = c1.date_input("시작일", datetime.date.today())
+                        t_end = c2.date_input("종료일", datetime.date.today() + datetime.timedelta(days=5))
+                        t_prog = st.slider("진행률 (%)", 0, 100, 0)
+                        t_mile = st.checkbox("🚩 주요 마일스톤인가요?")
+                        
+                        if st.form_submit_button("업무 추가"):
+                            new_task = pd.DataFrame([{
+                                "Project": selected_project,
+                                "Task": t_name,
+                                "Department": t_dept,
+                                "Start": str(t_start),
+                                "End": str(t_end),
+                                "Progress": t_prog,
+                                "Milestone": "Y" if t_mile else "N"
+                            }])
+                            updated_tasks = pd.concat([st.session_state.project_tasks, new_task], ignore_index=True)
+                            if save_data("project_tasks", updated_tasks):
+                                st.session_state.project_tasks = updated_tasks
+                                st.toast("업무가 추가되었습니다.", icon="✅")
+                                safe_rerun()
+
+                st.markdown("---")
+                st.markdown("###### 📋 업무 목록 관리")
+                
+                # 간편 삭제/수정용 에디터
+                if not p_tasks.empty:
+                    # 편집용 데이터 (불필요한 컬럼 제외)
+                    display_df = p_tasks[['Department', 'Task', 'Start', 'End', 'Progress', 'Milestone']].reset_index(drop=True)
+                    
+                    edited_tasks = st.data_editor(
+                        display_df,
+                        column_config={
+                            "Department": st.column_config.TextColumn("부서", width="small"),
+                            "Task": st.column_config.TextColumn("업무명", width="medium"),
+                            "Start": st.column_config.DateColumn("시작", width="small"),
+                            "End": st.column_config.DateColumn("종료", width="small"),
+                            "Progress": st.column_config.NumberColumn("%", width="small"),
+                            "Milestone": st.column_config.TextColumn("★", width="small"),
+                        },
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        key=f"task_editor_{selected_project}"
+                    )
+                    
+                    if st.button("💾 목록 변경사항 저장", type="primary"):
+                        # 1. 현재 프로젝트 제외한 데이터 보존
+                        other_tasks = tasks_df[tasks_df['Project'] != selected_project]
+                        
+                        # 2. 현재 프로젝트 데이터 갱신
+                        if not edited_tasks.empty:
+                            edited_tasks['Project'] = selected_project
+                            # 날짜 문자열 변환
+                            edited_tasks['Start'] = edited_tasks['Start'].astype(str)
+                            edited_tasks['End'] = edited_tasks['End'].astype(str)
+                            final_tasks = pd.concat([other_tasks, edited_tasks], ignore_index=True)
+                        else:
+                            final_tasks = other_tasks
+                            
+                        if save_data("project_tasks", final_tasks):
+                            st.session_state.project_tasks = final_tasks
+                            st.toast("목록이 업데이트되었습니다.", icon="✅")
+                            safe_rerun()
 
 # ---------------------------------------------------------
 # PAGE 3: 주간 업무 (PPP)
