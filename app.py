@@ -167,11 +167,11 @@ if page == "📊 대시보드":
     with t3: st.dataframe(df, column_config=cfg, use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------
-# PAGE 2: [업데이트] 프로젝트 간트차트 (디자인 개선)
+# PAGE 2: [업데이트] 프로젝트 간트차트 (미니멀 디자인)
 # ---------------------------------------------------------
 elif page == "🧩 프로젝트 간트차트":
     st.title("🧩 프로젝트 관리 (Gantt Chart)")
-    st.caption("프로젝트 일정과 마일스톤을 시각적으로 관리하세요.")
+    st.caption("프로젝트 일정과 마일스톤을 시각적으로 관리합니다.")
     
     # 데이터 준비
     projects_df = st.session_state.projects.copy()
@@ -193,41 +193,49 @@ elif page == "🧩 프로젝트 간트차트":
             st.markdown("##### 📌 전체 프로젝트 마스터 플랜")
         
         if not projects_df.empty:
-            # 간트차트 디자인 개선
+            # 간트차트 디자인: 미니멀 & 가시성 개선
             fig_overview = px.timeline(
                 projects_df, 
                 x_start="Start", 
                 x_end="End", 
                 y="Project",
                 color="Progress",
-                color_continuous_scale="Teal",
+                color_continuous_scale="Teal", # 깔끔한 단색 계열
+                range_color=[0, 100], # 0~100% 고정
                 hover_data=["Owner", "Status"],
                 text="Progress"
             )
-            # 차트 스타일링 (가시성 향상)
+            
+            # 차트 스타일링 (미니멀)
             fig_overview.update_xaxes(
                 side="top", 
-                title_font=dict(size=14),
-                tickformat="%Y-%m-%d",
+                title_font=dict(size=12),
+                tickformat="%b %d", # 'Mar 01' 형태로 간소화
                 dtick="M1", # 1개월 단위
                 showgrid=True,
-                gridcolor='lightgray'
+                gridcolor='#f8f9fa', # 아주 연한 그리드
+                zeroline=False
             )
-            fig_overview.update_yaxes(autorange="reversed", title="")
+            fig_overview.update_yaxes(
+                autorange="reversed", 
+                title="",
+                showgrid=False,
+                tickfont=dict(size=13, color="#333")
+            )
             fig_overview.update_traces(
                 texttemplate='%{text}%', 
                 textposition='inside', 
-                marker_line_color='white', 
-                marker_line_width=1, 
+                marker_line_width=0, # 테두리 제거로 플랫 디자인
                 opacity=0.9,
-                width=0.6 # 바 두께 조절
+                width=0.6 # 바 두께 슬림하게
             )
             fig_overview.update_layout(
-                height=350 + (len(projects_df)*40),
-                margin=dict(t=60, b=20, l=10, r=10),
+                height=300 + (len(projects_df)*50),
+                margin=dict(t=40, b=10, l=10, r=10),
                 plot_bgcolor='white',
                 paper_bgcolor='white',
-                font=dict(family="Arial", size=13)
+                font=dict(family="Segoe UI, Arial", size=12),
+                coloraxis_showscale=False # 컬러바 숨김 (심플함 유지)
             )
             st.plotly_chart(fig_overview, use_container_width=True)
         else:
@@ -235,8 +243,8 @@ elif page == "🧩 프로젝트 간트차트":
 
         st.divider()
         
-        # 프로젝트 생성/삭제 (Expander로 깔끔하게)
-        with st.expander("🛠️ 프로젝트 마스터 관리 (생성/삭제)", expanded=False):
+        # 프로젝트 생성/삭제
+        with st.expander("🛠️ 프로젝트 관리 (생성/삭제)", expanded=False):
             col_add, col_del = st.columns(2)
             
             with col_add:
@@ -273,7 +281,7 @@ elif page == "🧩 프로젝트 간트차트":
                             st.success(f"삭제 완료!")
                             safe_rerun()
 
-    # --- 2. 프로젝트 상세 (Detail - 디자인 개선) ---
+    # --- 2. 프로젝트 상세 (Detail - 미니멀 디자인) ---
     with tab_detail:
         # 프로젝트 선택
         p_list = projects_df['Project'].unique() if not projects_df.empty else []
@@ -283,90 +291,96 @@ elif page == "🧩 프로젝트 간트차트":
             selected_project = st.selectbox("📂 프로젝트 선택", p_list, label_visibility="collapsed")
         
         if selected_project:
-            # 해당 프로젝트 정보 표시
             p_info = projects_df[projects_df['Project'] == selected_project].iloc[0]
             with col_info:
-                st.info(f"**PM:** {p_info['Owner']} | **기간:** {p_info['Start'].strftime('%Y-%m-%d')} ~ {p_info['End'].strftime('%Y-%m-%d')} | **진행률:** {p_info['Progress']}%")
+                st.caption(f"**PM:** {p_info['Owner']}  |  **기간:** {p_info['Start'].strftime('%Y.%m.%d')} ~ {p_info['End'].strftime('%Y.%m.%d')}")
 
-            # 태스크 필터링 & 정렬
             p_tasks = tasks_df[tasks_df['Project'] == selected_project].sort_values(by=['Department', 'Start'])
             
             st.markdown("#### 📅 상세 타임라인")
             
             if not p_tasks.empty:
-                # [개선] Y축 라벨 가독성 확보 (부서 + 업무명)
+                # 라벨 가독성
                 p_tasks['Label'] = p_tasks.apply(lambda x: f"[{x['Department']}] {x['Task']}", axis=1)
-                p_tasks = p_tasks.sort_values(by=['Department', 'Start'], ascending=[True, True]) # 정렬 보장
+                p_tasks = p_tasks.sort_values(by=['Department', 'Start'], ascending=[True, True])
 
-                # 간트차트 그리기
+                # 파스텔 톤 색상 사용
+                colors = px.colors.qualitative.Pastel
+
                 fig_detail = px.timeline(
                     p_tasks,
                     x_start="Start", 
                     x_end="End", 
                     y="Label",
                     color="Department", 
+                    color_discrete_sequence=colors, # 파스텔 컬러 적용
                     hover_data=["Task", "Progress", "Department"],
                     text="Progress"
                 )
                 
-                # 차트 스타일링 (깔끔하게)
+                # 상세 차트 스타일링 (미니멀)
                 fig_detail.update_xaxes(
                     side="top", 
-                    tickformat="%m-%d",
+                    tickformat="%b %d", # 간소화 (Mar 01)
                     dtick="D7",  # 1주 단위
                     showgrid=True, 
                     gridwidth=1, 
-                    gridcolor='#eee'
+                    gridcolor='#f8f9fa', # 매우 연한 그리드
+                    zeroline=False
                 )
                 fig_detail.update_yaxes(
                     autorange="reversed", 
                     title="", 
                     showgrid=True,
-                    gridcolor='#eee',
-                    tickfont=dict(size=12, color='#333')
+                    gridcolor='#f8f9fa',
+                    tickfont=dict(size=12, color='#555')
                 )
                 fig_detail.update_layout(
-                    height=max(400, len(p_tasks) * 45), # 행 높이 확보
-                    margin=dict(t=70, b=20, l=10, r=10),
+                    height=max(400, len(p_tasks) * 50), # 행 간격 여유 있게
+                    margin=dict(t=60, b=20, l=10, r=10),
                     showlegend=True,
-                    legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1),
+                    legend=dict(
+                        orientation="h", 
+                        yanchor="bottom", y=1.05, 
+                        xanchor="left", x=0,
+                        title=None, # 레전드 제목 제거
+                        bgcolor='rgba(0,0,0,0)'
+                    ),
                     plot_bgcolor='white',
                     paper_bgcolor='white',
-                    font=dict(family="Arial", size=12)
+                    font=dict(family="Segoe UI, Arial", size=12)
                 )
                 # 바 스타일
                 fig_detail.update_traces(
                     marker_line_width=0, 
-                    opacity=0.85, 
+                    width=0.6,
+                    opacity=0.9, 
                     texttemplate='%{text}%', 
-                    textposition='inside',
-                    width=0.7
+                    textposition='auto' # 공간 부족시 밖으로
                 )
 
-                # 마일스톤 (별) 추가
+                # 마일스톤 (깔끔한 별)
                 milestones = p_tasks[p_tasks['Milestone'] == 'Y']
                 if not milestones.empty:
                     fig_detail.add_scatter(
                         x=milestones['End'], 
                         y=milestones['Label'], 
                         mode='markers',
-                        marker=dict(symbol='star', size=16, color='gold', line=dict(width=1, color='#b8860b')),
-                        name='주요 마일스톤',
+                        marker=dict(symbol='star', size=14, color='#f1c40f', line=dict(width=0)), # 테두리 없는 금색 별
+                        name='마일스톤',
                         showlegend=False
                     )
                 
                 st.plotly_chart(fig_detail, use_container_width=True)
             else:
-                st.info("등록된 상세 일정이 없습니다. 아래 패널에서 추가해주세요.")
+                st.info("등록된 상세 일정이 없습니다.")
 
             st.divider()
 
-            # [개선] 업무 관리 패널 (탭 분리)
             st.markdown("#### 📝 업무 관리 패널")
-            
             manage_tab1, manage_tab2 = st.tabs(["➕ 새 업무 추가", "✏️ 리스트 수정/삭제"])
             
-            # 1. 업무 추가 탭
+            # 1. 업무 추가
             with manage_tab1:
                 with st.form("add_detail_task_form"):
                     col1, col2, col3 = st.columns([1, 2, 1])
@@ -379,7 +393,7 @@ elif page == "🧩 프로젝트 간트차트":
                     t_end = col5.date_input("종료일", datetime.date.today() + datetime.timedelta(days=5))
                     t_mile = col6.checkbox("🚩 마일스톤 여부")
                     
-                    st.write("") # 간격
+                    st.write("") 
                     if st.form_submit_button("리스트에 추가", type="primary"):
                         if t_name:
                             new_task = pd.DataFrame([{
@@ -399,10 +413,9 @@ elif page == "🧩 프로젝트 간트차트":
                         else:
                             st.warning("업무명을 입력하세요.")
 
-            # 2. 리스트 수정 탭 (Data Editor)
+            # 2. 리스트 수정
             with manage_tab2:
                 if not p_tasks.empty:
-                    # 편집용 데이터 (불필요 컬럼 숨김)
                     display_cols = ['Department', 'Task', 'Start', 'End', 'Progress', 'Milestone']
                     edit_source = p_tasks[display_cols].reset_index(drop=True)
                     
@@ -422,16 +435,14 @@ elif page == "🧩 프로젝트 간트차트":
                     )
                     
                     if st.button("💾 수정사항 저장", type="primary"):
-                        # 로직: 현재 프로젝트 제외 데이터 + 수정된 데이터 병합
                         other_tasks = tasks_df[tasks_df['Project'] != selected_project]
-                        
                         if not edited_tasks.empty:
-                            edited_tasks['Project'] = selected_project # 프로젝트명 복원
+                            edited_tasks['Project'] = selected_project
                             edited_tasks['Start'] = edited_tasks['Start'].astype(str)
                             edited_tasks['End'] = edited_tasks['End'].astype(str)
                             final_tasks = pd.concat([other_tasks, edited_tasks], ignore_index=True)
                         else:
-                            final_tasks = other_tasks # 모두 삭제된 경우
+                            final_tasks = other_tasks
                             
                         if save_data("project_tasks", final_tasks):
                             st.session_state.project_tasks = final_tasks
