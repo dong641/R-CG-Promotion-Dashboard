@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import plotly.express as px
 from streamlit_gsheets import GSheetsConnection
 
 # ---------------------------------------------------------
@@ -23,94 +24,72 @@ def get_week_range(date_obj):
 def get_db_connection():
     return st.connection("gsheets", type=GSheetsConnection)
 
-def load_promotions():
-    """구글 시트 'promotions' 워크시트에서 데이터 로드"""
+def load_data(sheet_name, default_func):
+    """범용 데이터 로드 함수"""
     conn = get_db_connection()
     try:
-        df = conn.read(worksheet="promotions", ttl=0)
-        if df.empty: return create_default_promotions()
-        
-        # 전처리
-        for col in ['시작일', '종료일']:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
-        if '진척율' in df.columns:
-            df['진척율'] = df['진척율'].astype(str).str.replace('%', '').str.strip()
-            df['진척율'] = pd.to_numeric(df['진척율'], errors='coerce').fillna(0).astype(int)
-        return df
-    except Exception:
-        return create_default_promotions()
-
-def save_promotions(df):
-    """구글 시트 'promotions' 워크시트에 저장"""
-    conn = get_db_connection()
-    try:
-        conn.update(worksheet="promotions", data=df)
-        st.session_state.promotions = df.copy()
-        return True
-    except Exception as e:
-        st.error(f"구글 시트 저장 실패: {e}")
-        return False
-
-def load_weekly_reports():
-    """구글 시트 'weekly_reports' 워크시트에서 로드"""
-    conn = get_db_connection()
-    try:
-        df = conn.read(worksheet="weekly_reports", ttl=0)
-        if df.empty: return create_empty_report_df()
-        if 'Week_Start' in df.columns:
-            df['Week_Start'] = df['Week_Start'].astype(str)
+        df = conn.read(worksheet=sheet_name, ttl=0)
+        if df.empty: return default_func()
         return df
     except:
-        return create_empty_report_df()
+        return default_func()
 
-def save_weekly_report_entry(new_data_df):
-    """주간 업무 저장"""
+def save_data(sheet_name, df):
+    """범용 데이터 저장 함수"""
     conn = get_db_connection()
     try:
-        try:
-            existing_df = conn.read(worksheet="weekly_reports", ttl=0)
-            if 'Week_Start' in existing_df.columns:
-                existing_df['Week_Start'] = existing_df['Week_Start'].astype(str)
-        except:
-            existing_df = create_empty_report_df()
-
-        if not new_data_df.empty:
-            week_start = str(new_data_df['Week_Start'].iloc[0])
-            assignee = new_data_df['Assignee'].iloc[0]
-            
-            if not existing_df.empty:
-                mask = ~((existing_df['Week_Start'] == week_start) & (existing_df['Assignee'] == assignee))
-                existing_df = existing_df[mask]
-        
-        final_df = pd.concat([existing_df, new_data_df], ignore_index=True)
-        conn.update(worksheet="weekly_reports", data=final_df)
+        conn.update(worksheet=sheet_name, data=df)
         return True
     except Exception as e:
-        st.error(f"리포트 저장 실패: {e}")
+        st.error(f"저장 실패: {e}")
         return False
 
-# 기본 데이터 생성 함수들
+# --- 데이터 생성 함수들 ---
 def create_default_promotions():
     return pd.DataFrame([
-        {"프로모션명": "샘플 프로모션", "채널": "On Trade", "담당자": "관리자", "상태": "진행중", "진척율": 50, "시작일": datetime.date.today(), "종료일": datetime.date.today()}
+        {"프로모션명": "2024 봄 정기 세일", "채널": "Off Trade", "담당자": "김철수", "상태": "진행중", "진척율": 75, "시작일": datetime.date(2024, 3, 1), "종료일": datetime.date(2024, 3, 15)},
+        {"프로모션명": "신규 회원 가입 이벤트", "채널": "On Trade", "담당자": "이영희", "상태": "기획단계", "진척율": 20, "시작일": datetime.date(2024, 4, 1), "종료일": datetime.date(2024, 4, 30)},
     ])
 
 def create_empty_report_df():
     return pd.DataFrame(columns=["Week_Start", "Assignee", "Type", "Project", "Content", "Status"])
 
+def create_default_project_tasks():
+    """간트차트용 상세 태스크 데이터"""
+    return pd.DataFrame([
+        {"Project": "2024 봄 정기 세일", "Task": "기획안 확정", "Department": "기획팀", "Start": "2024-03-01", "End": "2024-03-05", "Progress": 100, "Milestone": "Y"},
+        {"Project": "2024 봄 정기 세일", "Task": "디자인 작업", "Department": "디자인팀", "Start": "2024-03-06", "End": "2024-03-10", "Progress": 50, "Milestone": "N"},
+        {"Project": "2024 봄 정기 세일", "Task": "개발 및 배포", "Department": "개발팀", "Start": "2024-03-11", "End": "2024-03-15", "Progress": 0, "Milestone": "Y"}
+    ])
+
+# ---------------------------------------------------------
+# 데이터 로드 로직 (세션 캐싱)
+# ---------------------------------------------------------
+def load_all_data():
+    # 1. 프로모션
+    df_promo = load_data("promotions", create_default_promotions)
+    for col in ['시작일', '종료일']:
+        if col in df_promo.columns: df_promo[col] = pd.to_datetime(df_promo[col], errors='coerce').dt.date
+    if '진척율' in df_promo.columns:
+        df_promo['진척율'] = pd.to_numeric(df_promo['진척율'].astype(str).str.replace('%',''), errors='coerce').fillna(0).astype(int)
+    st.session_state.promotions = df_promo
+
+    # 2. 프로젝트 태스크 (간트차트용)
+    df_tasks = load_data("project_tasks", create_default_project_tasks)
+    st.session_state.project_tasks = df_tasks
+
 # ---------------------------------------------------------
 # 메인 앱 초기화
 # ---------------------------------------------------------
-st.set_page_config(page_title="프로모션 통합 시스템 (Google)", page_icon="📊", layout="wide")
+st.set_page_config(page_title="프로모션 통합 시스템 (Gantt)", page_icon="🧩", layout="wide")
 
 if 'promotions' not in st.session_state:
-    st.session_state.promotions = load_promotions()
+    load_all_data()
 if 'is_global_unlocked' not in st.session_state:
     st.session_state.is_global_unlocked = False
 
 # ---------------------------------------------------------
-# 1. 로그인 화면
+# 1. 로그인
 # ---------------------------------------------------------
 if not st.session_state.is_global_unlocked:
     st.title("🔒 프로모션 시스템 접근")
@@ -130,7 +109,7 @@ if not st.session_state.is_global_unlocked:
 # ---------------------------------------------------------
 with st.sidebar:
     st.title("메뉴")
-    page = st.radio("이동할 페이지", ["📊 대시보드", "📅 주간 업무", "⚙️ 관리자 페이지"])
+    page = st.radio("이동할 페이지", ["📊 대시보드", "🧩 프로젝트 간트차트", "📅 주간 업무 (PPP)", "⚙️ 관리자 페이지"])
     st.divider()
     if st.button("🚪 로그아웃"):
         st.session_state.is_global_unlocked = False
@@ -144,143 +123,249 @@ if page == "📊 대시보드":
     st.title("📊 프로모션 현황 대시보드")
     df = st.session_state.promotions
     
-    # 핵심 지표
+    # 지표
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("전체 프로모션", f"{len(df)}건")
     c2.metric("진행중", f"{len(df[df['상태']=='진행중'])}건")
     c3.metric("완료", f"{len(df[df['상태']=='완료'])}건")
-    
-    # [수정] 평균 진척율 계산 시 완료 상태 제외
     active_df = df[df['상태'] != '완료']
     avg_prog = active_df['진척율'].mean() if not active_df.empty else 0
     c4.metric("평균 달성률(완료제외)", f"{avg_prog:.1f}%")
 
     st.divider()
     
-    # 필터 및 리스트
-    with st.expander("🔍 상세 필터", expanded=False):
-        f_cols = st.columns(3)
-        filtered_df = df.copy()
-        cols = [c for c in df.columns if c not in ['진척율', '시작일', '종료일']]
-        for i, col in enumerate(cols):
-            with f_cols[i%3]:
-                uniqs = sorted(filtered_df[col].astype(str).unique())
-                sel = st.multiselect(col, uniqs, key=f"d_{col}")
-                if sel: filtered_df = filtered_df[filtered_df[col].astype(str).isin(sel)]
+    # 탭별 리스트
+    df_active = df[df['상태'] != '완료']
+    df_completed = df[df['상태'] == '완료']
     
-    st.subheader("📋 프로모션 리스트")
-    
-    # [추가] 탭으로 구분하여 보기 (진행중 / 완료 / 전체)
-    df_active = filtered_df[filtered_df['상태'] != '완료']
-    df_completed = filtered_df[filtered_df['상태'] == '완료']
-    
-    tab1, tab2, tab3 = st.tabs([
-        f"🔥 진행 중 ({len(df_active)})", 
-        f"✅ 완료됨 ({len(df_completed)})", 
-        f"📑 전체 목록 ({len(filtered_df)})"
-    ])
-    
+    t1, t2, t3 = st.tabs([f"🔥 진행 중 ({len(df_active)})", f"✅ 완료됨 ({len(df_completed)})", "📑 전체 목록"])
     cfg = {"진척율": st.column_config.ProgressColumn(format="%d%%", min_value=0, max_value=100)}
     
-    with tab1:
-        st.dataframe(df_active, column_config=cfg, use_container_width=True, hide_index=True)
-        
-    with tab2:
-        st.dataframe(df_completed, column_config=cfg, use_container_width=True, hide_index=True)
-        
-    with tab3:
-        st.dataframe(filtered_df, column_config=cfg, use_container_width=True, hide_index=True)
+    with t1: st.dataframe(df_active, column_config=cfg, use_container_width=True, hide_index=True)
+    with t2: st.dataframe(df_completed, column_config=cfg, use_container_width=True, hide_index=True)
+    with t3: st.dataframe(df, column_config=cfg, use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------
-# PAGE 2: 주간 업무
+# PAGE 2: [신규] 프로젝트 간트차트
 # ---------------------------------------------------------
-elif page == "📅 주간 업무":
+elif page == "🧩 프로젝트 간트차트":
+    st.title("🧩 프로젝트 관리 (Gantt Chart)")
+    
+    # 데이터 준비
+    tasks_df = st.session_state.project_tasks.copy()
+    promos_df = st.session_state.promotions.copy()
+    
+    # 날짜 변환 (Plotly용)
+    tasks_df['Start'] = pd.to_datetime(tasks_df['Start'])
+    tasks_df['End'] = pd.to_datetime(tasks_df['End'])
+    promos_df['시작일'] = pd.to_datetime(promos_df['시작일'])
+    promos_df['종료일'] = pd.to_datetime(promos_df['종료일'])
+
+    # 탭 구성: 전체 보기 vs 상세 보기
+    tab_overview, tab_detail = st.tabs(["🌐 전체 프로젝트 현황 (Overview)", "🔍 프로젝트 상세 (유관부서별)"])
+
+    # --- 1. 전체 프로젝트 현황 (Overview) ---
+    with tab_overview:
+        st.markdown("##### 📌 전체 프로젝트 일정 및 마일스톤")
+        
+        if not promos_df.empty:
+            # 전체 프로젝트 타임라인
+            fig_overview = px.timeline(
+                promos_df, 
+                x_start="시작일", 
+                x_end="종료일", 
+                y="프로모션명",
+                color="진척율",
+                color_continuous_scale="Blues",
+                hover_data=["담당자", "상태"],
+                text="진척율" # 막대 위에 진척율 표시
+            )
+            fig_overview.update_yaxes(autorange="reversed") # 위에서부터 순서대로
+            fig_overview.update_layout(xaxis_title="기간", yaxis_title="프로젝트", height=400 + (len(promos_df)*30))
+            st.plotly_chart(fig_overview, use_container_width=True)
+            
+            st.info("💡 차트의 막대를 클릭하거나 아래 탭에서 상세 프로젝트를 선택하여 부서별 일정을 확인하세요.")
+        else:
+            st.warning("등록된 프로모션이 없습니다.")
+
+    # --- 2. 프로젝트 상세 (Detail) ---
+    with tab_detail:
+        # 프로젝트 선택
+        project_list = promos_df['프로모션명'].unique()
+        selected_project = st.selectbox("📂 프로젝트를 선택하세요", project_list)
+        
+        if selected_project:
+            st.divider()
+            
+            # 해당 프로젝트의 상세 태스크 필터링
+            project_tasks = tasks_df[tasks_df['Project'] == selected_project].sort_values(by='Start')
+            
+            col_chart, col_input = st.columns([2, 1])
+            
+            # (좌측) 부서별 간트차트
+            with col_chart:
+                st.markdown(f"##### 📊 [{selected_project}] 부서별 타임라인")
+                
+                if not project_tasks.empty:
+                    # 마일스톤 표시 (별도 마커)
+                    milestones = project_tasks[project_tasks['Milestone'] == 'Y']
+                    
+                    fig_detail = px.timeline(
+                        project_tasks,
+                        x_start="Start", 
+                        x_end="End", 
+                        y="Department", # Y축을 부서로
+                        color="Progress",
+                        hover_data=["Task", "Progress"],
+                        text="Task", # 막대 안에 태스크 이름 표시
+                        range_x=[project_tasks['Start'].min() - datetime.timedelta(days=2), project_tasks['End'].max() + datetime.timedelta(days=5)]
+                    )
+                    
+                    # 마일스톤 추가 (Scatter plot overlay)
+                    if not milestones.empty:
+                        fig_detail.add_scatter(
+                            x=milestones['End'], 
+                            y=milestones['Department'], 
+                            mode='markers', 
+                            marker=dict(symbol='star', size=15, color='gold'), 
+                            name='주요 마일스톤'
+                        )
+
+                    fig_detail.update_yaxes(autorange="reversed", title="유관 부서")
+                    fig_detail.update_xaxes(title="일정")
+                    fig_detail.update_layout(height=400 + (len(project_tasks['Department'].unique())*50))
+                    
+                    st.plotly_chart(fig_detail, use_container_width=True)
+                else:
+                    st.warning("등록된 상세 태스크가 없습니다. 우측에서 태스크를 등록해주세요.")
+
+            # (우측) 태스크 입력 및 관리
+            with col_input:
+                st.markdown("##### 📝 상세 태스크 관리")
+                with st.expander("➕ 새 태스크 추가", expanded=True):
+                    with st.form("add_task_form"):
+                        t_dept = st.selectbox("부서", ["기획팀", "디자인팀", "개발팀", "영업팀", "마케팅팀", "기타"])
+                        t_name = st.text_input("업무명 (Task)")
+                        t_start = st.date_input("시작일", datetime.date.today())
+                        t_end = st.date_input("종료일", datetime.date.today() + datetime.timedelta(days=5))
+                        t_prog = st.slider("진행률 (%)", 0, 100, 0)
+                        t_mile = st.checkbox("주요 마일스톤(★)인가요?")
+                        
+                        if st.form_submit_button("추가"):
+                            new_task = pd.DataFrame([{
+                                "Project": selected_project,
+                                "Task": t_name,
+                                "Department": t_dept,
+                                "Start": str(t_start),
+                                "End": str(t_end),
+                                "Progress": t_prog,
+                                "Milestone": "Y" if t_mile else "N"
+                            }])
+                            # 데이터 병합 및 저장
+                            updated_tasks = pd.concat([st.session_state.project_tasks, new_task], ignore_index=True)
+                            if save_data("project_tasks", updated_tasks):
+                                st.session_state.project_tasks = updated_tasks
+                                st.toast("태스크가 추가되었습니다!", icon="✅")
+                                safe_rerun()
+
+                # 태스크 목록 (삭제용)
+                st.markdown("###### 📋 태스크 목록 (삭제)")
+                if not project_tasks.empty:
+                    for idx, row in project_tasks.iterrows():
+                        c1, c2 = st.columns([4, 1])
+                        c1.text(f"[{row['Department']}] {row['Task']}")
+                        if c2.button("X", key=f"del_{idx}"):
+                            # 실제 인덱스를 찾아 삭제
+                            # 주의: session_state 원본에서 삭제해야 함
+                            origin_idx = st.session_state.project_tasks[
+                                (st.session_state.project_tasks['Project'] == selected_project) & 
+                                (st.session_state.project_tasks['Task'] == row['Task'])
+                            ].index
+                            
+                            if len(origin_idx) > 0:
+                                st.session_state.project_tasks = st.session_state.project_tasks.drop(origin_idx[0])
+                                save_data("project_tasks", st.session_state.project_tasks)
+                                st.toast("삭제되었습니다.")
+                                safe_rerun()
+
+# ---------------------------------------------------------
+# PAGE 3: 주간 업무 (PPP)
+# ---------------------------------------------------------
+elif page == "📅 주간 업무 (PPP)":
     st.title("📅 Weekly Business Review")
     
     col_date, col_view_opt = st.columns([1, 2])
     with col_date:
         pick_date = st.date_input("기준 날짜", datetime.date.today())
-    
-    start_week, end_week = get_week_range(pick_date)
-    week_str = str(start_week)
+    s_week, e_week = get_week_range(pick_date)
+    week_str = str(s_week)
     
     with col_view_opt:
-        st.info(f"📆 **{start_week} ~ {end_week}** 주간 업무 보고")
+        st.info(f"📆 **{s_week} ~ {e_week}** 주간 업무 보고")
 
     st.divider()
 
-    tab_view, tab_write = st.tabs(["📋 전체 팀원 보고서 조회 (Dashboard)", "✍️ 내 보고서 작성/수정"])
+    tab_view, tab_write = st.tabs(["📋 전체 보고서 조회", "✍️ 내 보고서 작성"])
 
-    # --- TAB 1: 조회 ---
+    # [조회]
     with tab_view:
-        with st.spinner("데이터를 불러오는 중..."):
-            report_df = load_weekly_reports()
+        with st.spinner("로딩 중..."):
+            report_df = load_data("weekly_reports", create_empty_report_df)
+            if 'Week_Start' in report_df.columns: report_df['Week_Start'] = report_df['Week_Start'].astype(str)
             
-        current_reports = report_df[report_df['Week_Start'] == week_str]
+        curr_reports = report_df[report_df['Week_Start'] == week_str]
         
-        if current_reports.empty:
-            st.warning("해당 주차에 제출된 보고서가 없습니다.")
+        if curr_reports.empty:
+            st.warning("제출된 보고서가 없습니다.")
         else:
-            assignees = sorted(current_reports['Assignee'].unique())
-            view_mode = st.radio("보기 방식", ["카드 뷰 (Card View)", "요약 테이블 (Summary)"], horizontal=True, label_visibility="collapsed")
+            assignees = sorted(curr_reports['Assignee'].unique())
+            view_mode = st.radio("보기 방식", ["카드 뷰", "테이블 뷰"], horizontal=True, label_visibility="collapsed")
             
-            if view_mode == "요약 테이블 (Summary)":
-                st.dataframe(
-                    current_reports,
-                    column_config={
-                        "Assignee": st.column_config.TextColumn("담당자", width="small"),
-                        "Content": st.column_config.TextColumn("업무 내용", width="large"),
-                        "Week_Start": None
-                    },
-                    use_container_width=True, hide_index=True
-                )
+            if view_mode == "테이블 뷰":
+                st.dataframe(curr_reports, use_container_width=True, hide_index=True)
             else:
                 cols = st.columns(2)
                 for idx, person in enumerate(assignees):
-                    p_df = current_reports[current_reports['Assignee'] == person]
+                    p_df = curr_reports[curr_reports['Assignee'] == person]
                     with cols[idx % 2]:
                         with st.container(border=True):
                             st.markdown(f"#### 👤 {person}")
                             
-                            def render_ppp_section(df_subset):
-                                if df_subset.empty:
-                                    st.caption("내용 없음")
+                            def render_ppp(type_val, icon, label):
+                                sub = p_df[p_df['Type'] == type_val]
+                                st.markdown(f"**{icon} {label}**")
+                                if sub.empty: st.caption("-")
                                 else:
-                                    for _, row in df_subset.iterrows():
-                                        icon = "🟢" if row['Status']=="정상" else "🟡" if row['Status']=="지연" else "🔴"
-                                        p_tag = f"**[{row['Project']}]**" if row['Project'] != "-" else ""
-                                        st.markdown(f"{icon} {p_tag} {row['Content']}")
-
-                            st.markdown("**✅ 금주 실적**")
-                            render_ppp_section(p_df[p_df['Type'] == '금주 실적'])
-                            st.divider()
-                            st.markdown("**🗓️ 차주 계획**")
-                            render_ppp_section(p_df[p_df['Type'] == '차주 계획'])
+                                    for _, r in sub.iterrows():
+                                        s = "🟢" if r['Status']=="정상" else "🟡" if r['Status']=="지연" else "🔴"
+                                        tag = f"**[{r['Project']}]**" if r['Project'] != "-" else ""
+                                        st.markdown(f"{s} {tag} {r['Content']}")
                             
-                            prob_df = p_df[p_df['Type'] == '이슈사항']
-                            if not prob_df.empty:
+                            render_ppp("금주 실적", "✅", "금주 실적")
+                            st.write("")
+                            render_ppp("차주 계획", "🗓️", "차주 계획")
+                            if not p_df[p_df['Type'] == '이슈사항'].empty:
                                 st.divider()
-                                st.markdown("**⚠️ 이슈 사항**")
-                                render_ppp_section(prob_df)
+                                render_ppp("이슈사항", "⚠️", "이슈 사항")
 
-    # --- TAB 2: 작성 ---
+    # [작성]
     with tab_write:
         st.markdown("##### 📝 보고서 작성")
         managers = list(st.session_state.promotions['담당자'].unique()) if '담당자' in st.session_state.promotions.columns else []
         if "기타" not in managers: managers.append("기타")
         
         c_sel, _ = st.columns([1, 2])
-        me = c_sel.selectbox("작성자(본인) 선택", managers, key="writer_select")
-        if me == "기타": me = c_sel.text_input("이름 직접 입력")
-
+        me = c_sel.selectbox("작성자 선택", managers, key="writer_select")
+        if me == "기타": me = c_sel.text_input("이름 입력")
+        
         if me:
-            full_data = load_weekly_reports()
+            full_data = load_data("weekly_reports", create_empty_report_df)
+            if 'Week_Start' in full_data.columns: full_data['Week_Start'] = full_data['Week_Start'].astype(str)
             my_data = full_data[(full_data['Week_Start'] == week_str) & (full_data['Assignee'] == me)]
             
             if not my_data.empty:
                 input_df = my_data.reset_index(drop=True)
             else:
-                # 템플릿 생성 (한글로 변경)
                 tmpl = [
                     {"Week_Start": week_str, "Assignee": me, "Type": "금주 실적", "Project": "-", "Content": "", "Status": "정상"},
                     {"Week_Start": week_str, "Assignee": me, "Type": "금주 실적", "Project": "-", "Content": "", "Status": "정상"},
@@ -288,14 +373,15 @@ elif page == "📅 주간 업무":
                     {"Week_Start": week_str, "Assignee": me, "Type": "차주 계획", "Project": "-", "Content": "", "Status": "정상"},
                 ]
                 input_df = pd.DataFrame(tmpl)
-
-            proj_list = ["-"] + list(st.session_state.promotions['프로모션명'].unique())
+            
+            proj_ops = ["-"] + list(st.session_state.promotions['프로모션명'].unique())
             
             edited_df = st.data_editor(
                 input_df,
                 column_config={
                     "Week_Start": None, "Assignee": None,
                     "Type": st.column_config.SelectboxColumn("구분", options=["금주 실적", "차주 계획", "이슈사항"], required=True),
+                    "Project": st.column_config.SelectboxColumn("관련 프로모션", options=proj_ops, required=True),
                     "Content": st.column_config.TextColumn("내용", required=True, width="large"),
                     "Status": st.column_config.SelectboxColumn("상태", options=["정상", "지연", "중단"], required=True)
                 },
@@ -303,179 +389,72 @@ elif page == "📅 주간 업무":
             )
             
             if st.button("💾 저장", type="primary"):
-                to_save = edited_df[edited_df['Content'].str.strip() != ""].copy()
-                if not to_save.empty:
-                    to_save['Week_Start'] = week_str
-                    to_save['Assignee'] = me
-                    if 'Project' in to_save.columns: to_save['Project'] = to_save['Project'].fillna("-")
-                    if 'Status' in to_save.columns: to_save['Status'] = to_save['Status'].fillna("정상")
+                new_entry = edited_df[edited_df['Content'].str.strip() != ""].copy()
+                if not new_entry.empty:
+                    new_entry['Week_Start'] = week_str
+                    new_entry['Assignee'] = me
+                    if 'Project' in new_entry.columns: new_entry['Project'] = new_entry['Project'].fillna("-")
+                    if 'Status' in new_entry.columns: new_entry['Status'] = new_entry['Status'].fillna("정상")
                     
-                    with st.spinner("저장 중..."):
-                        if save_weekly_report_entry(to_save):
-                            st.toast("저장되었습니다!", icon="✅")
-                            safe_rerun()
+                    # 덮어쓰기 로직
+                    mask = ~((full_data['Week_Start'] == week_str) & (full_data['Assignee'] == me))
+                    final_df = pd.concat([full_data[mask], new_entry], ignore_index=True)
+                    
+                    if save_data("weekly_reports", final_df):
+                        st.toast("저장되었습니다!", icon="✅")
+                        safe_rerun()
                 else:
-                    st.warning("내용을 입력해주세요.")
-        else:
-            st.info("작성자를 먼저 선택해주세요.")
+                    st.warning("내용이 없습니다.")
 
 # ---------------------------------------------------------
-# PAGE 3: 관리자 페이지
+# PAGE 4: 관리자 페이지
 # ---------------------------------------------------------
 elif page == "⚙️ 관리자 페이지":
-    # 3.1 관리자 인증
     if not st.session_state.get('is_admin_unlocked', False):
         st.title("⚙️ 관리자 인증")
-        with st.form("admin_login"):
-            pw = st.text_input("관리자 암호", type="password")
+        with st.form("l"):
+            p = st.text_input("암호", type="password")
             if st.form_submit_button("로그인"):
-                if pw == "diageorcg":
+                if p == "diageorcg":
                     st.session_state.is_admin_unlocked = True
+                    # 관리자용 Draft 초기화
                     st.session_state.draft_df = st.session_state.promotions.copy()
                     safe_rerun()
-                else:
-                    st.error("암호 오류")
+                else: st.error("오류")
     else:
-        # 3.2 관리자 메인 화면
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            st.title("⚙️ 데이터 관리")
-        with c2:
-            st.markdown("######") # 간격
-            if st.button("💾 저장", type="primary", use_container_width=True):
-                with st.spinner("구글 시트에 저장 중..."):
-                    if save_promotions(st.session_state.draft_df):
-                        st.toast("✅ 저장 완료! 대시보드에 적용되었습니다.", icon="🎉")
+        st.title("⚙️ 데이터 관리")
         
-        st.info("💡 아래에서 데이터를 수정(Draft)한 후, 우측 상단의 **'저장'** 버튼을 눌러야 구글 시트에 반영됩니다.")
-
-        # -----------------------------------------------------
-        # 기능 1: 컬럼(열) 관리
-        # -----------------------------------------------------
-        with st.expander("🛠️ 컬럼(열) 추가 및 삭제", expanded=False):
-            col_add, col_del = st.columns(2)
-            with col_add:
-                new_col_name = st.text_input("추가할 컬럼명")
-                if st.button("컬럼 추가", use_container_width=True):
-                    if new_col_name and new_col_name not in st.session_state.draft_df.columns:
-                        st.session_state.draft_df[new_col_name] = "-"
-                        st.success(f"'{new_col_name}' 추가됨 (임시)")
-                        safe_rerun()
-                    elif new_col_name in st.session_state.draft_df.columns:
-                        st.error("이미 존재하는 컬럼입니다.")
+        # 관리자도 Draft 데이터를 구글 시트에 저장해야 함
+        if 'draft_df' not in st.session_state:
+            st.session_state.draft_df = st.session_state.promotions.copy()
             
-            with col_del:
-                protected_cols = ['프로모션명', '상태', '진척율']
-                deletable = [c for c in st.session_state.draft_df.columns if c not in protected_cols]
-                del_col = st.selectbox("삭제할 컬럼 선택", deletable)
-                if st.button("컬럼 삭제", type="primary", use_container_width=True):
-                    if del_col:
-                        st.session_state.draft_df = st.session_state.draft_df.drop(columns=[del_col])
-                        st.success(f"'{del_col}' 삭제됨 (임시)")
-                        safe_rerun()
-
-        # -----------------------------------------------------
-        # 기능 2: 행(Row) 추가
-        # -----------------------------------------------------
-        with st.expander("➕ 새 데이터(행) 추가", expanded=False):
-            with st.form("add_row_form"):
-                st.markdown("**기본 정보**")
-                c1, c2 = st.columns(2)
-                in_name = c1.text_input("프로모션명")
-                in_status = c2.selectbox("상태", ["기획단계", "대기", "진행중", "완료", "보류"])
-                in_progress = st.slider("진척율 (%)", 0, 100, 0)
-                
-                c3, c4 = st.columns(2)
-                in_start = c3.date_input("시작일", datetime.date.today())
-                in_end = c4.date_input("종료일", datetime.date.today() + datetime.timedelta(days=7))
-                
-                # 동적 컬럼 입력
-                dynamic_data = {}
-                reserved = ['프로모션명', '상태', '진척율', '시작일', '종료일']
-                others = [c for c in st.session_state.draft_df.columns if c not in reserved]
-                
-                if others:
-                    st.markdown("**추가 정보**")
-                    dc_cols = st.columns(3)
-                    for idx, col in enumerate(others):
-                        if col == '채널':
-                            dynamic_data[col] = dc_cols[idx % 3].selectbox(col, ["On Trade", "Off Trade", "기타"])
-                        else:
-                            dynamic_data[col] = dc_cols[idx % 3].text_input(col)
-
-                if st.form_submit_button("추가하기"):
-                    if in_name:
-                        new_row = {
-                            "프로모션명": in_name,
-                            "상태": in_status,
-                            "진척율": in_progress,
-                            "시작일": in_start,
-                            "종료일": in_end
-                        }
-                        new_row.update(dynamic_data)
-                        
-                        st.session_state.draft_df = pd.concat(
-                            [st.session_state.draft_df, pd.DataFrame([new_row])], 
-                            ignore_index=True
-                        )
-                        st.success("데이터 추가됨 (임시)")
-                        safe_rerun()
-                    else:
-                        st.error("프로모션명은 필수입니다.")
-
-        # -----------------------------------------------------
-        # 기능 3: CSV 업로드 (덮어쓰기)
-        # -----------------------------------------------------
-        with st.expander("📂 CSV 파일로 덮어쓰기", expanded=False):
-            uploaded_file = st.file_uploader("CSV 파일 업로드", type=["csv"], label_visibility="collapsed")
-            if uploaded_file:
-                if st.button("🔄 이 파일로 데이터 교체 (임시)", use_container_width=True):
-                    try:
-                        new_df = pd.read_csv(uploaded_file)
-                        # 전처리
-                        if '진척율' in new_df.columns:
-                            new_df['진척율'] = new_df['진척율'].astype(str).str.replace('%', '').str.strip()
-                            new_df['진척율'] = pd.to_numeric(new_df['진척율'], errors='coerce').fillna(0).astype(int)
-                        for col in ['시작일', '종료일']:
-                            if col in new_df.columns:
-                                new_df[col] = pd.to_datetime(new_df[col], errors='coerce').dt.date
-                        
-                        st.session_state.draft_df = new_df
-                        st.success("CSV 데이터 로드됨 (임시). 상단 저장 버튼을 눌러 확정하세요.")
-                        safe_rerun()
-                    except Exception as e:
-                        st.error(f"오류: {e}")
-
-        st.divider()
-
-        # -----------------------------------------------------
-        # 기능 4: 데이터 에디터 (수정) & 다운로드
-        # -----------------------------------------------------
-        st.subheader("✏️ 데이터 편집 (Draft)")
+        c1, c2 = st.columns([2,1])
+        if c2.button("💾 변경사항 저장", type="primary"):
+            with st.spinner("저장 중..."):
+                if save_data("promotions", st.session_state.draft_df):
+                    st.session_state.promotions = st.session_state.draft_df.copy()
+                    st.toast("저장 완료")
         
-        column_configuration = {
-            "진척율": st.column_config.NumberColumn("진척율", min_value=0, max_value=100, format="%d%%"),
-            "상태": st.column_config.SelectboxColumn("상태", options=["기획단계", "대기", "진행중", "완료", "보류"], required=True),
-            "시작일": st.column_config.DateColumn("시작일", format="YYYY-MM-DD"),
-            "종료일": st.column_config.DateColumn("종료일", format="YYYY-MM-DD"),
-        }
-        if "채널" in st.session_state.draft_df.columns:
-            column_configuration["채널"] = st.column_config.SelectboxColumn("채널", options=["On Trade", "Off Trade", "기타"])
-
-        edited_df = st.data_editor(
-            st.session_state.draft_df,
-            column_config=column_configuration,
-            hide_index=True,
-            use_container_width=True,
-            num_rows="dynamic",
-            key="draft_editor"
-        )
-
-        if not edited_df.equals(st.session_state.draft_df):
-            st.session_state.draft_df = edited_df
-
+        st.subheader("데이터 편집 (Promotions)")
+        edited = st.data_editor(st.session_state.draft_df, num_rows="dynamic", use_container_width=True)
+        if not edited.equals(st.session_state.draft_df):
+            st.session_state.draft_df = edited
+            
         st.divider()
         
-        csv = st.session_state.draft_df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 현재 데이터 CSV 다운로드", csv, "promotion_data.csv", "text/csv")
-
+        # CSV 관리
+        st.subheader("📂 CSV 관리")
+        col_csv1, col_csv2 = st.columns(2)
+        with col_csv1:
+            csv = st.session_state.draft_df.to_csv(index=False).encode('utf-8-sig')
+            st.download_button("다운로드", csv, "promo_data.csv", "text/csv")
+        with col_csv2:
+            uploaded_file = st.file_uploader("업로드 (덮어쓰기)", type=["csv"], label_visibility="collapsed")
+            if uploaded_file and st.button("적용"):
+                try:
+                    new_df = pd.read_csv(uploaded_file)
+                    st.session_state.draft_df = new_df
+                    st.success("CSV 로드됨. 상단 저장 버튼을 눌러 확정하세요.")
+                    safe_rerun()
+                except Exception as e:
+                    st.error(f"오류: {e}")
