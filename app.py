@@ -6,168 +6,7 @@ import plotly.graph_objects as go
 from streamlit_gsheets import GSheetsConnection
 
 # ---------------------------------------------------------
-# 유틸리티 함수
-# ---------------------------------------------------------
-def safe_rerun():
-    if hasattr(st, "rerun"):
-        st.rerun()
-    else:
-        st.experimental_rerun()
-
-def get_week_range(date_obj):
-    start = date_obj - datetime.timedelta(days=date_obj.weekday())
-    end = start + datetime.timedelta(days=6)
-    return start, end
-
-# ---------------------------------------------------------
-# [핵심] 구글 시트 데이터 로드/저장 함수
-# ---------------------------------------------------------
-def get_db_connection():
-    return st.connection("gsheets", type=GSheetsConnection)
-
-def load_data(sheet_name, default_func):
-    """범용 데이터 로드 함수"""
-    conn = get_db_connection()
-    try:
-        df = conn.read(worksheet=sheet_name, ttl=0)
-        if df.empty: return default_func()
-        return df
-    except:
-        return default_func()
-
-def save_data(sheet_name, df):
-    """범용 데이터 저장 함수"""
-    conn = get_db_connection()
-    try:
-        conn.update(worksheet=sheet_name, data=df)
-        return True
-    except Exception as e:
-        st.error(f"저장 실패: {e}")
-        return False
-
-# --- 데이터 생성 및 전처리 함수들 ---
-def create_default_promotions():
-    return pd.DataFrame([
-        {"프로모션명": "2024 봄 정기 세일", "채널": "Off Trade", "담당자": "김철수", "상태": "진행중", "진척율": 75, "시작일": datetime.date(2024, 3, 1), "종료일": datetime.date(2024, 3, 15)},
-        {"프로모션명": "신규 회원 가입 이벤트", "채널": "On Trade", "담당자": "이영희", "상태": "기획단계", "진척율": 20, "시작일": datetime.date(2024, 4, 1), "종료일": datetime.date(2024, 4, 30)},
-    ])
-
-def create_default_projects():
-    """프로젝트 관리용 별도 데이터"""
-    return pd.DataFrame([
-        {"Project": "신제품 런칭 프로젝트", "Owner": "박팀장", "Status": "진행중", "Progress": 45, "Start": datetime.date(2024, 3, 1), "End": datetime.date(2024, 5, 31)},
-        {"Project": "웹사이트 리뉴얼", "Owner": "최대리", "Status": "기획", "Progress": 10, "Start": datetime.date(2024, 4, 1), "End": datetime.date(2024, 6, 30)},
-    ])
-
-def create_empty_report_df():
-    return pd.DataFrame(columns=["Week_Start", "Assignee", "Type", "Project", "Content", "Status"])
-
-def create_default_project_tasks():
-    """간트차트용 상세 태스크 데이터"""
-    return pd.DataFrame([
-        {"Project": "신제품 런칭 프로젝트", "Task": "시장 조사 완료", "Department": "기획팀", "Start": "2024-03-01", "End": "2024-03-10", "Progress": 100, "Milestone": "Y"},
-        {"Project": "신제품 런칭 프로젝트", "Task": "패키지 디자인", "Department": "디자인팀", "Start": "2024-03-11", "End": "2024-03-25", "Progress": 60, "Milestone": "N"},
-        {"Project": "신제품 런칭 프로젝트", "Task": "시제품 생산", "Department": "생산팀", "Start": "2024-03-26", "End": "2024-04-15", "Progress": 0, "Milestone": "Y"},
-        {"Project": "웹사이트 리뉴얼", "Task": "메인 페이지 기획", "Department": "기획팀", "Start": "2024-04-01", "End": "2024-04-15", "Progress": 20, "Milestone": "N"}
-    ])
-
-# ---------------------------------------------------------
-# 데이터 로드 로직 (세션 캐싱 및 전처리)
-# ---------------------------------------------------------
-def load_all_data():
-    # 1. 메인 프로모션 데이터
-    df_promo = load_data("promotions", create_default_promotions)
-    for col in ['시작일', '종료일']:
-        if col in df_promo.columns: df_promo[col] = pd.to_datetime(df_promo[col], errors='coerce').dt.date
-    if '진척율' in df_promo.columns:
-        df_promo['진척율'] = pd.to_numeric(df_promo['진척율'].astype(str).str.replace('%',''), errors='coerce').fillna(0).astype(int)
-    st.session_state.promotions = df_promo
-
-    # 2. 프로젝트 목록 데이터
-    df_projects = load_data("projects", create_default_projects)
-    for col in ['Start', 'End']:
-        if col in df_projects.columns: df_projects[col] = pd.to_datetime(df_projects[col], errors='coerce').dt.date
-    if 'Progress' in df_projects.columns:
-        df_projects['Progress'] = pd.to_numeric(df_projects['Progress'], errors='coerce').fillna(0).astype(int)
-    st.session_state.projects = df_projects
-
-    # 3. 프로젝트 상세 태스크 데이터
-    df_tasks = load_data("project_tasks", create_default_project_tasks)
-    for col in ['Start', 'End']:
-        if col in df_tasks.columns: df_tasks[col] = pd.to_datetime(df_tasks[col], errors='coerce').dt.date
-    if 'Progress' in df_tasks.columns:
-        df_tasks['Progress'] = pd.to_numeric(df_tasks['Progress'], errors='coerce').fillna(0).astype(int)
-    st.session_state.project_tasks = df_tasks
-
-# ---------------------------------------------------------
-# 메인 앱 초기화
-# ---------------------------------------------------------
-st.set_page_config(page_title="프로모션 통합 시스템 (Gantt)", page_icon="🧩", layout="wide")
-
-if 'promotions' not in st.session_state:
-    load_all_data()
-if 'is_global_unlocked' not in st.session_state:
-    st.session_state.is_global_unlocked = False
-
-# ---------------------------------------------------------
-# 1. 로그인
-# ---------------------------------------------------------
-if not st.session_state.is_global_unlocked:
-    st.title("🔒 프로모션 시스템 접근")
-    c1, c2 = st.columns([2,1])
-    with c1:
-        pw = st.text_input("접속 암호를 입력하세요", type="password")
-    if st.button("접속"):
-        if pw == "dk2026":
-            st.session_state.is_global_unlocked = True
-            safe_rerun()
-        else:
-            st.error("암호가 일치하지 않습니다.")
-    st.stop()
-
-# ---------------------------------------------------------
-# 사이드바
-# ---------------------------------------------------------
-with st.sidebar:
-    st.title("메뉴")
-    page = st.radio("이동할 페이지", ["📊 대시보드", "🧩 프로젝트 간트차트", "📅 주간 업무 (PPP)", "⚙️ 관리자 페이지"])
-    st.divider()
-    if st.button("🚪 로그아웃"):
-        st.session_state.is_global_unlocked = False
-        st.session_state.is_admin_unlocked = False
-        safe_rerun()
-
-# ---------------------------------------------------------
-# PAGE 1: 대시보드
-# ---------------------------------------------------------
-if page == "📊 대시보드":
-    st.title("📊 프로모션 현황 대시보드")
-    df = st.session_state.promotions
-    
-    # 지표
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("전체 프로모션", f"{len(df)}건")
-    c2.metric("진행중", f"{len(df[df['상태']=='진행중'])}건")
-    c3.metric("완료", f"{len(df[df['상태']=='완료'])}건")
-    active_df = df[df['상태'] != '완료']
-    avg_prog = active_df['진척율'].mean() if not active_df.empty else 0
-    c4.metric("평균 달성률(완료제외)", f"{avg_prog:.1f}%")
-
-    st.divider()
-    
-    # 탭별 리스트
-    df_active = df[df['상태'] != '완료']
-    df_completed = df[df['상태'] == '완료']
-    
-    t1, t2, t3 = st.tabs([f"🔥 진행 중 ({len(df_active)})", f"✅ 완료됨 ({len(df_completed)})", "📑 전체 목록"])
-    cfg = {"진척율": st.column_config.ProgressColumn(format="%d%%", min_value=0, max_value=100)}
-    
-    with t1: st.dataframe(df_active, column_config=cfg, use_container_width=True, hide_index=True)
-    with t2: st.dataframe(df_completed, column_config=cfg, use_container_width=True, hide_index=True)
-    with t3: st.dataframe(df, column_config=cfg, use_container_width=True, hide_index=True)
-
-# ---------------------------------------------------------
-# PAGE 2: [업데이트] 프로젝트 간트차트 (미니멀 디자인)
+# PAGE 2: [업데이트] 프로젝트 간트차트 (디자인 개선)
 # ---------------------------------------------------------
 elif page == "🧩 프로젝트 간트차트":
     st.title("🧩 프로젝트 관리 (Gantt Chart)")
@@ -281,7 +120,7 @@ elif page == "🧩 프로젝트 간트차트":
                             st.success(f"삭제 완료!")
                             safe_rerun()
 
-    # --- 2. 프로젝트 상세 (Detail - 미니멀 디자인) ---
+    # --- 2. 프로젝트 상세 (Detail - 디자인 개선) ---
     with tab_detail:
         # 프로젝트 선택
         p_list = projects_df['Project'].unique() if not projects_df.empty else []
@@ -373,18 +212,17 @@ elif page == "🧩 프로젝트 간트차트":
                 
                 st.plotly_chart(fig_detail, use_container_width=True)
             else:
-                st.info("등록된 상세 일정이 없습니다.")
-
-            st.divider()
-
+            # [개선] 업무 관리 패널 (탭 분리)
             st.markdown("#### 📝 업무 관리 패널")
+            
             manage_tab1, manage_tab2 = st.tabs(["➕ 새 업무 추가", "✏️ 리스트 수정/삭제"])
             
             # 1. 업무 추가
             with manage_tab1:
                 with st.form("add_detail_task_form"):
                     col1, col2, col3 = st.columns([1, 2, 1])
-                    t_dept = col1.selectbox("부서", ["기획팀", "디자인팀", "개발팀", "영업팀", "마케팅팀", "기타"])
+                    # [수정] 부서 입력 방식 변경: Selectbox -> TextInput
+                    t_dept = col1.text_input("부서", placeholder="팀명 입력 (예: 기획팀)")
                     t_name = col2.text_input("업무명")
                     t_prog = col3.slider("진행률", 0, 100, 0)
                     
@@ -395,7 +233,7 @@ elif page == "🧩 프로젝트 간트차트":
                     
                     st.write("") 
                     if st.form_submit_button("리스트에 추가", type="primary"):
-                        if t_name:
+                        if t_name and t_dept:
                             new_task = pd.DataFrame([{
                                 "Project": selected_project,
                                 "Task": t_name,
@@ -411,7 +249,7 @@ elif page == "🧩 프로젝트 간트차트":
                                 st.toast("추가되었습니다!", icon="✅")
                                 safe_rerun()
                         else:
-                            st.warning("업무명을 입력하세요.")
+                            st.warning("부서와 업무명을 모두 입력하세요.")
 
             # 2. 리스트 수정
             with manage_tab2:
@@ -422,7 +260,8 @@ elif page == "🧩 프로젝트 간트차트":
                     edited_tasks = st.data_editor(
                         edit_source,
                         column_config={
-                            "Department": st.column_config.SelectboxColumn("부서", options=["기획팀", "디자인팀", "개발팀", "영업팀", "마케팅팀", "기타"], width="small"),
+                            # [수정] 부서 수정 방식 변경: SelectboxColumn -> TextColumn
+                            "Department": st.column_config.TextColumn("부서", width="small"),
                             "Task": st.column_config.TextColumn("업무명", width="large"),
                             "Start": st.column_config.DateColumn("시작", width="small"),
                             "End": st.column_config.DateColumn("종료", width="small"),
