@@ -119,24 +119,6 @@ st.markdown("""
 
 if 'promotions' not in st.session_state:
     load_all_data()
-if 'is_global_unlocked' not in st.session_state:
-    st.session_state.is_global_unlocked = False
-
-# ---------------------------------------------------------
-# 1. 로그인
-# ---------------------------------------------------------
-if not st.session_state.is_global_unlocked:
-    st.title("🔒 프로모션 시스템 접근")
-    c1, c2 = st.columns([2,1])
-    with c1:
-        pw = st.text_input("접속 암호를 입력하세요", type="password")
-    if st.button("접속"):
-        if pw == "dk2026":
-            st.session_state.is_global_unlocked = True
-            safe_rerun()
-        else:
-            st.error("암호가 일치하지 않습니다.")
-    st.stop()
 
 # ---------------------------------------------------------
 # 사이드바
@@ -145,8 +127,8 @@ with st.sidebar:
     st.title("메뉴")
     page = st.radio("이동할 페이지", ["📊 대시보드", "🧩 프로젝트 간트차트", "📅 주간 업무 (PPP)", "⚙️ 관리자 페이지"])
     st.divider()
-    if st.button("🚪 로그아웃"):
-        st.session_state.is_global_unlocked = False
+    # 로그아웃 버튼은 관리자 페이지의 잠금을 푸는 용도로만 사용됨 (전체 로그인은 없음)
+    if st.button("🚪 관리자 로그아웃"):
         st.session_state.is_admin_unlocked = False
         safe_rerun()
 
@@ -568,6 +550,7 @@ elif page == "📅 주간 업무 (PPP)":
                     if 'Project' in new_entry.columns: new_entry['Project'] = new_entry['Project'].fillna("-")
                     if 'Status' in new_entry.columns: new_entry['Status'] = new_entry['Status'].fillna("정상")
                     
+                    # 덮어쓰기 로직
                     mask = ~((full_data['Week_Start'] == week_str) & (full_data['Assignee'] == me))
                     final_df = pd.concat([full_data[mask], new_entry], ignore_index=True)
                     
@@ -590,6 +573,7 @@ elif page == "⚙️ 관리자 페이지":
             if st.form_submit_button("로그인"):
                 if p == "diageorcg":
                     st.session_state.is_admin_unlocked = True
+                    # 관리자용 Draft 초기화
                     st.session_state.draft_df = st.session_state.promotions.copy()
                     safe_rerun()
                 else: st.error("오류")
