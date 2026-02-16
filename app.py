@@ -511,10 +511,19 @@ hr {
     transition: width 0.4s ease;
 }
 
-/* ── Hide streamlit defaults ── */
+/* ── Hide streamlit defaults (keep hamburger visible) ── */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-header {visibility: hidden;}
+/* header는 숨기지 않음 → 사이드바 토글(햄버거) 버튼 유지 */
+header[data-testid="stHeader"] {
+    background: var(--bg-primary) !important;
+    border-bottom: 1px solid var(--border-subtle) !important;
+}
+/* 사이드바 토글 버튼 스타일 */
+button[data-testid="stSidebarCollapsedControl"],
+button[kind="header"] {
+    color: var(--text-secondary) !important;
+}
 
 </style>
 """, unsafe_allow_html=True)
